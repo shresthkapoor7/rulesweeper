@@ -2,9 +2,12 @@
 
 This repository adapts the [MORTAR](https://arxiv.org/pdf/2601.00105) quality-diversity and LLM-guided system to Minesweeper, in order generate novel and interesting game mechanics.
 
-![Minesweeper screenshot](assets/screenshot.png)
+<img src="assets/screenshot.png" alt="Gameplay screenshot" width="400"/>
 
-## Running the game
+## Playing the game
+
+### Human
+
 To play as a human, from the mortar-minesweeper directory run
 ```
 python main.py       
@@ -15,8 +18,7 @@ To play with a particular mechanic, run
 python main.py --mechanic extra-life
 ```
 
-## Playing the game
-To play as a human, use the following commands
+Use the following commands to play the game
 
 | Action | Command | Example |
 |---|---|---|
@@ -24,6 +26,15 @@ To play as a human, use the following commands
 | Flag a cell | `f <row> <col>` | f 2 J |
 | Show all commands | `h` | |
 | Quit | `q` | |
+
+### Agent
+| Command | Outcome |
+|---|---|
+| Single, headless game | `python main.py --agent random` |
+| To see board outcome | `python main.py --agent random --watch` |
+| To batch the summary across a set of games | `python main.py --agent random --games 100` |
+| Reproducable run with a seed | `python main.py --agent random --seed 42` |
+| With a mechanic enabled | `python main.py --agent random --mechanic extra-life` |
 
 
 ## Setup

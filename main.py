@@ -8,31 +8,50 @@ from game import MinesweeperGame, GameState
 from renderer import TerminalRenderer
 from reveal_strategies import REVEAL_STRATEGIES
 from mechanics_archive import MECHANICS
+from agents import AGENTS, run_game
 
 
-def parse_args() -> GameConfig:
+def parse_args() -> argparse.Namespace:
     p = argparse.ArgumentParser(description="Minesweeper (MORTAR base game)")
+
+    # --- Agent mode ---
+    p.add_argument("--agent",  default=None, choices=list(AGENTS.keys()),
+                   help="Run a named agent instead of human play")
+    p.add_argument("--watch",  action="store_true",
+                   help="Render the board while the agent plays")
+    p.add_argument("--games",  type=int, default=1,
+                   help="Number of games to run (agent mode only)")
+    p.add_argument("--seed",   type=int, default=None,
+                   help="Random seed for reproducible runs")
+
+    # --- Game config ---
     p.add_argument("--mechanic",        default=None, dest="mechanic",
                    choices=list(MECHANICS.keys()),
                    help="Start from a named mechanic preset")
-    p.add_argument("--rows",         type=int,  default=None)
-    p.add_argument("--cols",         type=int,  default=None)
-    p.add_argument("--mines",        type=int,  default=None, dest="mine_count")
-    p.add_argument("--health",       type=int,  default=None, dest="starting_health")
-    p.add_argument("--damage",       type=int,  default=None, dest="mine_damage")
-    p.add_argument("--flag-limit",      type=int,  default=None, dest="flag_limit")
+    p.add_argument("--rows",            type=int, default=None)
+    p.add_argument("--cols",            type=int, default=None)
+    p.add_argument("--mines",           type=int, default=None, dest="mine_count")
+    p.add_argument("--health",          type=int, default=None, dest="starting_health")
+    p.add_argument("--damage",          type=int, default=None, dest="mine_damage")
+    p.add_argument("--flag-limit",      type=int, default=None, dest="flag_limit")
     p.add_argument("--reveal-strategy", default=None, dest="reveal_strategy",
                    choices=list(REVEAL_STRATEGIES.keys()))
     p.add_argument("--no-safe-click",   action="store_false", dest="safe_first_click")
-    args = p.parse_args()
 
-    # Start from named preset or bare defaults; then apply any explicit CLI overrides
+    return p.parse_args()
+
+
+def build_config(args: argparse.Namespace) -> GameConfig:
+    """Build a GameConfig from parsed args, applying preset then CLI overrides."""
     base = MECHANICS[args.mechanic]() if args.mechanic else GameConfig()
+    config_fields = {"rows", "cols", "mine_count", "starting_health",
+                     "mine_damage", "flag_limit", "reveal_strategy"}
     overrides = {k: v for k, v in vars(args).items()
-                 if k != "mechanic" and v is not None}
-    # safe_first_click is store_false so False is an explicit override; True is the default
+                 if k in config_fields and v is not None}
     if args.safe_first_click is True and args.mechanic:
         overrides.pop("safe_first_click", None)
+    elif not args.safe_first_click:
+        overrides["safe_first_click"] = False
     return dataclasses.replace(base, **overrides)
 
 
@@ -62,6 +81,27 @@ def parse_command(raw: str) -> tuple[str, int, int] | str | None:
         except ValueError:
             return None
     return None
+
+
+def run_agent_cli(args: argparse.Namespace, config: GameConfig) -> None:
+    agent = AGENTS[args.agent](seed=args.seed)
+    renderer = TerminalRenderer() if args.watch else None
+    # Only forward seed for single-game runs; batch runs use fresh randomness each game
+    game_seed = args.seed if args.games == 1 else None
+    results = [
+        run_game(agent, config, renderer=renderer, seed=game_seed)
+        for _ in range(args.games)
+    ]
+    if args.games == 1:
+        print(results[0])
+    else:
+        wins = sum(1 for r in results if r["state"] == "won")
+        avg_revealed  = sum(r["cells_revealed"] for r in results) / len(results)
+        avg_efficiency = sum(r["efficiency"]     for r in results) / len(results)
+        print(f"Games:          {args.games}")
+        print(f"Wins:           {wins} ({100 * wins // args.games}%)")
+        print(f"Avg revealed:   {avg_revealed:.1f}")
+        print(f"Avg efficiency: {avg_efficiency:.2f}")
 
 
 def game_loop(game: MinesweeperGame, renderer: TerminalRenderer) -> None:
@@ -106,11 +146,15 @@ def game_loop(game: MinesweeperGame, renderer: TerminalRenderer) -> None:
 
 
 def main() -> None:
-    config = parse_args()
-    game = MinesweeperGame(config)
-    renderer = TerminalRenderer()
-    renderer.render_help()
-    game_loop(game, renderer)
+    args = parse_args()
+    config = build_config(args)
+
+    if args.agent:
+        run_agent_cli(args, config)
+    else:
+        renderer = TerminalRenderer()
+        renderer.render_help()
+        game_loop(MinesweeperGame(config), renderer)
 
 
 if __name__ == "__main__":

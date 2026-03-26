@@ -12,7 +12,7 @@ class Board:
     Mine placement is deferred until first reveal to support safe_first_click.
     """
 
-    def __init__(self, config: GameConfig) -> None:
+    def __init__(self, config: GameConfig, seed: int | None = None) -> None:
         self.config = config
         self.mines_placed = False
         self.grid: list[list[Cell]] = [
@@ -21,6 +21,8 @@ class Board:
         ]
         self._flags_placed = 0
         self._strategy: RevealStrategy = REVEAL_STRATEGIES[config.reveal_strategy]()
+        # Isolated RNG — does not share state with the agent or any other component
+        self._rng = random.Random(seed)
 
     ##############################################################
     # SETUP
@@ -45,7 +47,7 @@ class Board:
 
         # Guard: if mine_count exceeds available candidates, don't place more
         count = min(self.config.mine_count, len(candidates))
-        for r, c in random.sample(candidates, count):
+        for r, c in self._rng.sample(candidates, count):
             self.grid[r][c].is_mine = True
 
         self._compute_adjacency()

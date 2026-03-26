@@ -21,7 +21,8 @@ All files are flat in `mortar-minesweeper/`. Each has a single responsibility.
 | `cell.py` | `Cell` dataclass — pure data (mine, revealed, flagged, adjacent count); only `Board` mutates it |
 | `board.py` | `Board` — owns the grid, mine placement (deferred to first click), adjacency computation, flagging, and delegates reveals to a `RevealStrategy` |
 | `reveal_strategies.py` | `RevealStrategy` ABC + concrete implementations (`CascadeReveal`, `SingleReveal`) + `REVEAL_STRATEGIES` registry |
-| `mechanics.py` | Named `GameConfig` presets (`extra_life`, …) + `MECHANICS` registry — catalog of evolved mechanic variants |
+| `mechanics_archive.py` | Named `GameConfig` presets (`extra_life`, …) + `MECHANICS` registry — catalog of evolved mechanic variants |
+| `agents.py` | `Agent` ABC + `RandomAgent` + `run_game()` helper — headless game execution for MORTAR fitness evaluation |
 | `player.py` | `Player` — tracks health, moves, and statistics; exposes `metrics()` as the MORTAR fitness signal |
 | `game.py` | `MinesweeperGame` + `GameState` enum — orchestrates `Board` and `Player`; primary interface for both human play and MORTAR agents |
 | `renderer.py` | `TerminalRenderer` — stateless display; all output lives here; ANSI color when stdout is a tty |

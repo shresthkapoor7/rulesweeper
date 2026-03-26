@@ -32,12 +32,13 @@ class MinesweeperGame:
         metrics = game.get_player_metrics()
     """
 
-    def __init__(self, config: GameConfig | None = None) -> None:
+    def __init__(self, config: GameConfig | None = None, seed: int | None = None) -> None:
         self.config = config or GameConfig()
+        self._seed = seed
         self._init_components()
 
     def _init_components(self) -> None:
-        self.board = Board(self.config)
+        self.board = Board(self.config, seed=self._seed)
         self.player = Player(self.config)
         self.state = GameState.PENDING
 
