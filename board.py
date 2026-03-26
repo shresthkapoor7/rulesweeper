@@ -1,0 +1,130 @@
+from __future__ import annotations
+import random
+
+from config import GameConfig
+from cell import Cell
+from reveal_strategies import REVEAL_STRATEGIES, RevealStrategy
+
+
+class Board:
+    """
+    This class owns the grid of Cells and all topological operations.
+    Mine placement is deferred until first reveal to support safe_first_click.
+    """
+
+    def __init__(self, config: GameConfig) -> None:
+        self.config = config
+        self.mines_placed = False
+        self.grid: list[list[Cell]] = [
+            [Cell() for _ in range(config.cols)]
+            for _ in range(config.rows)
+        ]
+        self._flags_placed = 0
+        self._strategy: RevealStrategy = REVEAL_STRATEGIES[config.reveal_strategy]()
+
+    ##############################################################
+    # SETUP
+    ##############################################################
+
+    def place_mines(self, exclude: tuple[int, int]) -> None:
+        """
+        Randomly place config.mine_count mines.
+        If safe_first_click, exclude the clicked cell and its 8 neighbors.
+        """
+        if self.config.safe_first_click:
+            exclude_set = {exclude} | set(self.neighbors(*exclude))
+        else:
+            exclude_set = {exclude}
+
+        candidates = [
+            (r, c)
+            for r in range(self.config.rows)
+            for c in range(self.config.cols)
+            if (r, c) not in exclude_set
+        ]
+
+        # Guard: if mine_count exceeds available candidates, don't place more
+        count = min(self.config.mine_count, len(candidates))
+        for r, c in random.sample(candidates, count):
+            self.grid[r][c].is_mine = True
+
+        self._compute_adjacency()
+        self.mines_placed = True
+
+    def _compute_adjacency(self) -> None:
+        """Fill adjacent_mines for every non-mine cell. O(rows × cols)."""
+        for r in range(self.config.rows):
+            for c in range(self.config.cols):
+                if not self.grid[r][c].is_mine:
+                    self.grid[r][c].adjacent_mines = sum(
+                        1 for nr, nc in self.neighbors(r, c)
+                        if self.grid[nr][nc].is_mine
+                    )
+
+    ##############################################################
+    # QUERIES
+    ##############################################################
+
+    def in_bounds(self, r: int, c: int) -> bool:
+        return 0 <= r < self.config.rows and 0 <= c < self.config.cols
+
+    def neighbors(self, r: int, c: int) -> list[tuple[int, int]]:
+        """Return valid (r, c) pairs for all 8 Moore-neighborhood cells."""
+        return [
+            (r + dr, c + dc)
+            for dr in (-1, 0, 1)
+            for dc in (-1, 0, 1)
+            if (dr, dc) != (0, 0) and self.in_bounds(r + dr, c + dc)
+        ]
+
+    def is_solved(self) -> bool:
+        """True when every non-mine cell is revealed."""
+        return all(
+            cell.is_revealed
+            for row in self.grid
+            for cell in row
+            if not cell.is_mine
+        )
+
+    def flags_placed(self) -> int:
+        return self._flags_placed
+
+    ##############################################################
+    # MUTATIONS
+    ##############################################################
+
+    def reveal(self, r: int, c: int) -> list[tuple[int, int]]:
+        """
+        Reveal a cell via the configured RevealStrategy.
+        Mine cells are handled by the game layer; this method is only called for safe cells.
+        Returns all newly revealed (r, c) pairs.
+        """
+        cell = self.grid[r][c]
+        if cell.is_revealed or cell.is_flagged or cell.is_mine:
+            return []
+        return self._strategy.reveal(self, r, c)
+
+    def reveal_mine(self, r: int, c: int) -> None:
+        """Mark a mine cell as revealed (called by MinesweeperGame on hit)."""
+        self.grid[r][c].is_revealed = True
+
+    def toggle_flag(self, r: int, c: int) -> bool:
+        """
+        Toggle flag on an unrevealed cell. Respects flag_limit.
+        Returns True if the flag state changed.
+        """
+        cell = self.grid[r][c]
+        if cell.is_revealed:
+            return False
+
+        if not cell.is_flagged:
+            limit = self.config.flag_limit
+            if limit is not None and self._flags_placed >= limit:
+                return False
+            cell.is_flagged = True
+            self._flags_placed += 1
+        else:
+            cell.is_flagged = False
+            self._flags_placed -= 1
+
+        return True
