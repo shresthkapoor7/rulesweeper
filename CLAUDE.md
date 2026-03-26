@@ -91,7 +91,7 @@ Every call to `game.reveal()` and `game.flag()` returns a structured dict:
 
 ## Named Mechanics
 
-`mechanics.py` is the catalog of named mechanic presets — the kind of configs MORTAR would produce after evolving interesting variants. Each preset is a function that returns a `GameConfig`.
+`mechanics_archive.py` is the catalog of named mechanic presets — the kind of configs MORTAR would produce after evolving interesting variants. Each preset is a function that returns a `GameConfig`.
 
 | Name | Description |
 |---|---|
