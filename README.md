@@ -12,7 +12,7 @@ python main.py
 
 To play with a particular mechanic, run
 ```
-python main.py --mechanic extra_life
+python main.py --mechanic extra-life
 ```
 
 ## Playing the game
