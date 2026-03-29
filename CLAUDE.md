@@ -8,7 +8,8 @@ This is a base Minesweeper implementation built for the [MORTAR](https://arxiv.o
 
 - **Python 3.10+** required (`int | None` union syntax is used throughout)
 - **Run scripts from inside `mortar-minesweeper/`** — imports are flat/sibling-relative, not package-based
-- **No external dependencies** — stdlib only (`dataclasses`, `abc`, `collections`, `enum`, `argparse`)
+- **No external dependencies in the core game** — stdlib only (`dataclasses`, `abc`, `collections`, `enum`, `argparse`)
+- **`mortar.py` requires `openai`** (`pip install openai`) and an `OPENROUTER_API_KEY` in `.env` — copy `.env.example`
 - No `__init__.py`; the directory is not a package
 
 ## Architecture
@@ -21,8 +22,9 @@ All files are flat in `mortar-minesweeper/`. Each has a single responsibility.
 | `cell.py` | `Cell` dataclass — pure data (mine, revealed, flagged, adjacent count); only `Board` mutates it |
 | `board.py` | `Board` — owns the grid, mine placement (deferred to first click), adjacency computation, flagging, and delegates reveals to a `RevealStrategy` |
 | `reveal_strategies.py` | `RevealStrategy` ABC + concrete implementations (`CascadeReveal`, `SingleReveal`) + `REVEAL_STRATEGIES` registry |
-| `mechanics_archive.py` | Named `GameConfig` presets (`extra_life`, …) + `MECHANICS` registry — catalog of evolved mechanic variants |
-| `agents.py` | `Agent` ABC + `RandomAgent` + `run_game()` helper — headless game execution for MORTAR fitness evaluation |
+| `mechanics_archive.py` | Named `GameConfig` presets + `MECHANICS` registry — catalog of evolved mechanic variants; `standard` is the MORTAR seed |
+| `mortar.py` | MORTAR mutation engine — LLM-guided `GameConfig` evolution via OpenRouter, flat JSON archive, CLI entry point |
+| `agents.py` | `Agent` ABC + `RandomAgent` + `run_game()` + `evaluate_config()` — headless execution and multi-run fitness evaluation |
 | `player.py` | `Player` — tracks health, moves, and statistics; exposes `metrics()` as the MORTAR fitness signal |
 | `game.py` | `MinesweeperGame` + `GameState` enum — orchestrates `Board` and `Player`; primary interface for both human play and MORTAR agents |
 | `renderer.py` | `TerminalRenderer` — stateless display; all output lives here; ANSI color when stdout is a tty |
@@ -85,7 +87,7 @@ Every call to `game.reveal()` and `game.flag()` returns a structured dict:
     "cells_revealed":   int,    # cumulative safe cells uncovered
     "mines_hit":        int,    # > 0 only when mine_damage < starting_health
     "health_remaining": int,
-    "efficiency":       float,  # cells_revealed / moves
+    "efficiency":       float,  # cells_revealed / moves (note: mortar.py uses progress_fraction instead)
 }
 ```
 
@@ -95,6 +97,7 @@ Every call to `game.reveal()` and `game.flag()` returns a structured dict:
 
 | Name | Description |
 |---|---|
+| `standard` | Canonical 16×16 minesweeper — the MORTAR seed config |
 | `extra-life` | Player starts with 2 HP; survives one mine hit before game over |
 
 Use a preset from the CLI — additional flags compose on top:
@@ -142,7 +145,7 @@ python main.py [options]
   --flag-limit INT        Max flags allowed (default: unlimited)
   --reveal-strategy STR   cascade | single (default: cascade)
   --no-safe-click         Disable safe first click guarantee
-  --mechanic NAME         Start from a named preset (extra-life)
+  --mechanic NAME         Start from a named preset (standard, extra-life)
 ```
 
 In-game commands:
