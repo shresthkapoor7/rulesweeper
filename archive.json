@@ -1,0 +1,185 @@
+[
+  {
+    "config_snapshot": {
+      "rows": 16,
+      "cols": 16,
+      "mine_count": 40,
+      "starting_health": 1,
+      "mine_damage": 1,
+      "safe_first_click": true,
+      "reveal_strategy": "cascade",
+      "flag_limit": null
+    },
+    "description": "Canonical 16\u00d716 standard minesweeper",
+    "fitness": {
+      "win_rate": 0.0,
+      "avg_cells_revealed": 86.93333333333334,
+      "avg_progress_fraction": 0.4024691358024692,
+      "avg_mines_hit": 1.0,
+      "avg_turns": 5.6,
+      "n_games": 15
+    },
+    "parent_snapshot": null,
+    "generation": 0
+  },
+  {
+    "config_snapshot": {
+      "rows": 16,
+      "cols": 16,
+      "mine_count": 40,
+      "starting_health": 3,
+      "mine_damage": 2,
+      "safe_first_click": true,
+      "reveal_strategy": "cascade",
+      "flag_limit": null
+    },
+    "description": "Increased starting health and mine damage to create a more forgiving yet still challenging experience with more room for error.",
+    "fitness": {
+      "win_rate": 0.0,
+      "avg_cells_revealed": 92.6,
+      "avg_progress_fraction": 0.4287037037037037,
+      "avg_mines_hit": 2.0,
+      "avg_turns": 9.133333333333333,
+      "n_games": 15
+    },
+    "parent_snapshot": {
+      "rows": 16,
+      "cols": 16,
+      "mine_count": 40,
+      "starting_health": 1,
+      "mine_damage": 1,
+      "safe_first_click": true,
+      "reveal_strategy": "cascade",
+      "flag_limit": null
+    },
+    "generation": 1
+  },
+  {
+    "config_snapshot": {
+      "rows": 16,
+      "cols": 16,
+      "mine_count": 60,
+      "starting_health": 2,
+      "mine_damage": 1,
+      "safe_first_click": true,
+      "reveal_strategy": "cascade",
+      "flag_limit": null
+    },
+    "description": "Increased mine density and slightly more health to make navigating a denser minefield more forgiving.",
+    "fitness": {
+      "win_rate": 0.0,
+      "avg_cells_revealed": 31.466666666666665,
+      "avg_progress_fraction": 0.16054421768707483,
+      "avg_mines_hit": 2.0,
+      "avg_turns": 7.533333333333333,
+      "n_games": 15
+    },
+    "parent_snapshot": {
+      "rows": 16,
+      "cols": 16,
+      "mine_count": 40,
+      "starting_health": 1,
+      "mine_damage": 1,
+      "safe_first_click": true,
+      "reveal_strategy": "cascade",
+      "flag_limit": null
+    },
+    "generation": 1
+  },
+  {
+    "config_snapshot": {
+      "rows": 16,
+      "cols": 16,
+      "mine_count": 40,
+      "starting_health": 3,
+      "mine_damage": 2,
+      "safe_first_click": true,
+      "reveal_strategy": "cascade",
+      "flag_limit": 20
+    },
+    "description": "A limited flag count encourages more strategic flagging and potentially more risky unflagged reveals.",
+    "fitness": {
+      "win_rate": 0.0,
+      "avg_cells_revealed": 88.46666666666667,
+      "avg_progress_fraction": 0.40956790123456793,
+      "avg_mines_hit": 2.0,
+      "avg_turns": 8.2,
+      "n_games": 15
+    },
+    "parent_snapshot": {
+      "rows": 16,
+      "cols": 16,
+      "mine_count": 40,
+      "starting_health": 3,
+      "mine_damage": 2,
+      "safe_first_click": true,
+      "reveal_strategy": "cascade",
+      "flag_limit": null
+    },
+    "generation": 2
+  },
+  {
+    "config_snapshot": {
+      "rows": 16,
+      "cols": 16,
+      "mine_count": 55,
+      "starting_health": 2,
+      "mine_damage": 2,
+      "safe_first_click": true,
+      "reveal_strategy": "cascade",
+      "flag_limit": null
+    },
+    "description": "A slightly denser minefield with less health encourages more careful play and risk assessment.",
+    "fitness": {
+      "win_rate": 0.0,
+      "avg_cells_revealed": 45.06666666666667,
+      "avg_progress_fraction": 0.22421227197346602,
+      "avg_mines_hit": 1.0,
+      "avg_turns": 5.4,
+      "n_games": 15
+    },
+    "parent_snapshot": {
+      "rows": 16,
+      "cols": 16,
+      "mine_count": 40,
+      "starting_health": 3,
+      "mine_damage": 2,
+      "safe_first_click": true,
+      "reveal_strategy": "cascade",
+      "flag_limit": null
+    },
+    "generation": 2
+  },
+  {
+    "config_snapshot": {
+      "rows": 16,
+      "cols": 16,
+      "mine_count": 50,
+      "starting_health": 2,
+      "mine_damage": 1,
+      "safe_first_click": true,
+      "reveal_strategy": "cascade",
+      "flag_limit": 30
+    },
+    "description": "Slightly reduces mine density and increases the flag limit to encourage more exploration and less penalty for misflagging.",
+    "fitness": {
+      "win_rate": 0.0,
+      "avg_cells_revealed": 59.53333333333333,
+      "avg_progress_fraction": 0.2889967637540453,
+      "avg_mines_hit": 2.0,
+      "avg_turns": 8.333333333333334,
+      "n_games": 15
+    },
+    "parent_snapshot": {
+      "rows": 16,
+      "cols": 16,
+      "mine_count": 60,
+      "starting_health": 2,
+      "mine_damage": 1,
+      "safe_first_click": true,
+      "reveal_strategy": "cascade",
+      "flag_limit": null
+    },
+    "generation": 2
+  }
+]

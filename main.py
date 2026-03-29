@@ -8,7 +8,7 @@ from game import MinesweeperGame, GameState
 from renderer import TerminalRenderer
 from reveal_strategies import REVEAL_STRATEGIES
 from mechanics_archive import MECHANICS
-from agents import AGENTS, run_game
+from agents import AGENTS, run_game, evaluate_config
 
 
 def parse_args() -> argparse.Namespace:
@@ -84,24 +84,32 @@ def parse_command(raw: str) -> tuple[str, int, int] | str | None:
 
 
 def run_agent_cli(args: argparse.Namespace, config: GameConfig) -> None:
-    agent = AGENTS[args.agent](seed=args.seed)
-    renderer = TerminalRenderer() if args.watch else None
-    # Only forward seed for single-game runs; batch runs use fresh randomness each game
-    game_seed = args.seed if args.games == 1 else None
-    results = [
-        run_game(agent, config, renderer=renderer, seed=game_seed)
-        for _ in range(args.games)
-    ]
+    # --watch: render a single game interactively, bypass batch harness
+    if args.watch:
+        agent = AGENTS[args.agent](seed=args.seed)
+        renderer = TerminalRenderer()
+        result = run_game(agent, config, renderer=renderer, seed=args.seed)
+        if args.games == 1:
+            print(result)
+        return
+
+    stats = evaluate_config(
+        AGENTS[args.agent], config,
+        n_games=args.games,
+        base_seed=args.seed,
+    )
     if args.games == 1:
-        print(results[0])
+        # Single game: show raw metrics for quick inspection
+        agent = AGENTS[args.agent](seed=args.seed)
+        result = run_game(agent, config, seed=args.seed)
+        print(result)
     else:
-        wins = sum(1 for r in results if r["state"] == "won")
-        avg_revealed  = sum(r["cells_revealed"] for r in results) / len(results)
-        avg_efficiency = sum(r["efficiency"]     for r in results) / len(results)
-        print(f"Games:          {args.games}")
-        print(f"Wins:           {wins} ({100 * wins // args.games}%)")
-        print(f"Avg revealed:   {avg_revealed:.1f}")
-        print(f"Avg efficiency: {avg_efficiency:.2f}")
+        print(f"Games:            {stats['n_games']}")
+        print(f"Wins:             {stats['win_rate']*100:.1f}%")
+        print(f"Avg revealed:     {stats['avg_cells_revealed']:.1f}")
+        print(f"Avg progress:     {stats['avg_progress_fraction']*100:.1f}%")
+        print(f"Avg mines hit:    {stats['avg_mines_hit']:.2f}")
+        print(f"Avg turns:        {stats['avg_turns']:.1f}")
 
 
 def game_loop(game: MinesweeperGame, renderer: TerminalRenderer) -> None:

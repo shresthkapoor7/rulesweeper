@@ -54,6 +54,45 @@ AGENTS: dict[str, type[Agent]] = {
 }
 
 
+def evaluate_config(
+    agent_class: type[Agent],
+    config: GameConfig,
+    n_games: int = 50,
+    base_seed: int | None = None,
+) -> dict:
+    """
+    Run N games and return aggregated fitness metrics for the given config.
+
+    Uses a fresh agent instance per game to avoid RNG state accumulation.
+    Pass base_seed for reproducible results: game i uses seed base_seed+i.
+
+    Returns:
+        win_rate              — fraction of games won
+        avg_cells_revealed    — mean safe cells uncovered
+        avg_progress_fraction — avg_cells_revealed / safe_cells (board-size-normalized)
+        avg_mines_hit         — mean mines struck per game
+        avg_turns             — mean total actions per game
+        n_games               — number of games played
+    """
+    safe_cells = config.rows * config.cols - config.mine_count
+    results = []
+    for i in range(n_games):
+        seed = (base_seed + i) if base_seed is not None else None
+        agent = agent_class(seed=seed)
+        results.append(run_game(agent, config, seed=seed))
+
+    wins = sum(1 for r in results if r["state"] == "won")
+    avg_revealed = sum(r["cells_revealed"] for r in results) / n_games
+    return {
+        "win_rate":              wins / n_games,
+        "avg_cells_revealed":    avg_revealed,
+        "avg_progress_fraction": avg_revealed / max(safe_cells, 1),
+        "avg_mines_hit":         sum(r["mines_hit"] for r in results) / n_games,
+        "avg_turns":             sum(r["turns"]    for r in results) / n_games,
+        "n_games":               n_games,
+    }
+
+
 def run_game(
     agent: Agent,
     config: GameConfig | None = None,
