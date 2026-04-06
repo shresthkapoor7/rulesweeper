@@ -100,24 +100,32 @@ class PAFGAgent(Agent):
             return ("reveal", 0, 0)
 
         # Stage P — constraint propagation
-        action = self._stage_p(grid, rows, cols, can_flag)
+        # Returns the action to take (if any) and the full mine_set so later
+        # stages can treat deduced mines as virtual flags even when can_flag=False.
+        action, mine_set = self._stage_p(grid, rows, cols, can_flag)
         if action:
             return action
 
         # Stage A — Gaussian elimination + enumeration
-        action, prob_map = self._stage_a(grid, rows, cols, cfg.mine_count)
+        action, prob_map = self._stage_a(grid, rows, cols, cfg.mine_count, mine_set, can_flag)
         if action:
             return action
 
-        # Stage G — guess on lowest mine probability
-        return self._stage_g(grid, rows, cols, prob_map)
+        # Stage G — guess on lowest mine probability; skip known mines
+        return self._stage_g(grid, rows, cols, prob_map, mine_set)
 
     # ------------------------------------------------------------------
     # Stage P — constraint propagation
     # ------------------------------------------------------------------
 
-    def _stage_p(self, grid, rows, cols, can_flag) -> tuple[str, int, int] | None:
-        """Iterate constraint propagation until fixpoint. Returns first deduced action."""
+    def _stage_p(
+        self, grid, rows, cols, can_flag
+    ) -> tuple[tuple[str, int, int] | None, set[tuple[int, int]]]:
+        """
+        Iterate constraint propagation until fixpoint.
+        Returns (action, mine_set). mine_set is always returned so later stages
+        can treat deduced mines as virtual flags even when can_flag=False.
+        """
         changed = True
         safe_set: set[tuple[int, int]] = set()
         mine_set: set[tuple[int, int]] = set()
@@ -129,13 +137,17 @@ class PAFGAgent(Agent):
                     cell = grid[r][c]
                     if not cell.is_revealed or cell.adjacent_mines == 0:
                         continue
-                    flagged, unrevealed = self._classify_neighbors(grid, rows, cols, r, c)
+                    # Pass mine_set so already-deduced mines count as virtual flags,
+                    # enabling second-order deductions within the same fixpoint loop.
+                    flagged, unrevealed = self._classify_neighbors(
+                        grid, rows, cols, r, c, virtual_mines=mine_set
+                    )
                     remaining = cell.adjacent_mines - len(flagged)
                     if remaining < 0:
                         continue
                     if remaining == 0:
                         for pos in unrevealed:
-                            if pos not in safe_set:
+                            if pos not in safe_set and pos not in mine_set:
                                 safe_set.add(pos)
                                 changed = True
                     elif remaining == len(unrevealed):
@@ -144,35 +156,37 @@ class PAFGAgent(Agent):
                                 mine_set.add(pos)
                                 changed = True
 
-            # Treat newly-identified mines as flagged for further propagation
-            # (we don't mutate grid — just skip them in subsequent iterations)
-
         if mine_set and can_flag:
             r, c = next(iter(mine_set))
-            return ("flag", r, c)
+            return ("flag", r, c), mine_set
         if safe_set:
             r, c = next(iter(safe_set))
-            return ("reveal", r, c)
-        return None
+            return ("reveal", r, c), mine_set
+        return None, mine_set
 
     # ------------------------------------------------------------------
     # Stage A — Gaussian elimination + enumeration
     # ------------------------------------------------------------------
 
     def _stage_a(
-        self, grid, rows, cols, mine_count
+        self, grid, rows, cols, mine_count,
+        mine_set: set[tuple[int, int]],
+        can_flag: bool,
     ) -> tuple[tuple[str, int, int] | None, dict[tuple[int, int], float]]:
         """
         Build and solve the constraint system. Returns (action, prob_map).
         action is set only when a deterministic deduction is found.
         prob_map maps every unrevealed/unflagged cell to P(mine).
+        mine_set: cells already deduced as mines by Stage P (treated as virtual flags).
+        can_flag: when False, skip flag actions to avoid infinite loops at flag limit.
         """
-        # Enumerate unrevealed/unflagged cells
+        # Enumerate unrevealed/unflagged cells (exclude Stage P virtual mines)
         unrevealed = [
             (r, c)
             for r in range(rows)
             for c in range(cols)
             if not grid[r][c].is_revealed and not grid[r][c].is_flagged
+            and (r, c) not in mine_set
         ]
         if not unrevealed:
             return None, {}
@@ -241,7 +255,8 @@ class PAFGAgent(Agent):
             r, c = frontier[idx]
             if val == 0:
                 return ("reveal", r, c), {}
-            # val == 1 -> mine, but we don't flag here — fall through to let caller flag
+            if val == 1 and can_flag:
+                return ("flag", r, c), {}
 
         # Enumerate per connected component for probability
         components = self._connected_components(frontier, equations, n)
@@ -274,10 +289,11 @@ class PAFGAgent(Agent):
             prob_map[pos] = p_non_frontier
 
         # Check for deterministic mines in prob_map (prob == 1.0)
-        for pos, p in prob_map.items():
-            if p >= 1.0:
-                r, c = pos
-                return ("flag", r, c), prob_map
+        if can_flag:
+            for pos, p in prob_map.items():
+                if p >= 1.0:
+                    r, c = pos
+                    return ("flag", r, c), prob_map
 
         return None, prob_map
 
@@ -286,13 +302,15 @@ class PAFGAgent(Agent):
     # ------------------------------------------------------------------
 
     def _stage_g(
-        self, grid, rows, cols, prob_map: dict[tuple[int, int], float]
+        self, grid, rows, cols, prob_map: dict[tuple[int, int], float],
+        mine_set: set[tuple[int, int]],
     ) -> tuple[str, int, int]:
         unrevealed = [
             (r, c)
             for r in range(rows)
             for c in range(cols)
             if not grid[r][c].is_revealed and not grid[r][c].is_flagged
+            and (r, c) not in mine_set
         ]
         if not unrevealed:
             # Fallback: should never happen in a live game
@@ -317,13 +335,18 @@ class PAFGAgent(Agent):
     # ------------------------------------------------------------------
 
     def _classify_neighbors(
-        self, grid, rows, cols, r, c
+        self, grid, rows, cols, r, c,
+        virtual_mines: set[tuple[int, int]] | None = None,
     ) -> tuple[list[tuple[int, int]], list[tuple[int, int]]]:
-        """Return (flagged_neighbors, unrevealed_unflagged_neighbors)."""
+        """
+        Return (flagged_neighbors, unrevealed_unflagged_neighbors).
+        virtual_mines: cells deduced as mines but not yet flagged on the grid;
+        counted as flagged for constraint purposes.
+        """
         flagged, unrevealed = [], []
         for nr, nc in _neighbors(r, c, rows, cols):
             nbr = grid[nr][nc]
-            if nbr.is_flagged:
+            if nbr.is_flagged or (virtual_mines and (nr, nc) in virtual_mines):
                 flagged.append((nr, nc))
             elif not nbr.is_revealed:
                 unrevealed.append((nr, nc))
