@@ -22,7 +22,8 @@ import time
 
 from openai import OpenAI
 
-from agents import RandomAgent, evaluate_config
+from agents import evaluate_config
+from agents.random_agent import RandomAgent
 
 
 def _load_dotenv(path: str = ".env") -> None:

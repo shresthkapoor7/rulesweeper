@@ -33,6 +33,7 @@ Use the following commands to play the game
 
 ### Agent
 
+Available agents: `random`, `pafg`, `neural`
 
 | Command                                    | Outcome                                               |
 | ------------------------------------------ | ----------------------------------------------------- |
@@ -41,6 +42,39 @@ Use the following commands to play the game
 | To batch the summary across a set of games | `python main.py --agent random --games 100`           |
 | Reproducable run with a seed               | `python main.py --agent random --seed 42`             |
 | With a mechanic enabled                    | `python main.py --agent random --mechanic extra-life` |
+
+#### Neural Agent
+
+The `neural` agent uses a CNN-based DQN (Deep Q-Network) trained via reinforcement learning. It requires PyTorch.
+
+```bash
+pip install torch
+```
+
+**Training:**
+
+```bash
+python -m agents.train_neural --episodes 50000 --rows 9 --cols 9 --mines 10
+```
+
+| Flag               | Default      | Description                     |
+| ------------------ | ------------ | ------------------------------- |
+| `--episodes`       | 50000        | Total training episodes         |
+| `--rows/cols/mines`| 9 / 9 / 10  | Board config for training       |
+| `--lr`             | 1e-4         | Learning rate                   |
+| `--eval-freq`      | 500          | Evaluate every N episodes       |
+| `--checkpoint-dir` | checkpoints/ | Where to save model checkpoints |
+| `--resume`         | —            | Resume from a checkpoint path   |
+| `--device`         | auto         | `cpu` or `cuda`                 |
+
+**Playing with a trained model:**
+
+```bash
+python main.py --agent neural
+python main.py --agent neural --watch
+```
+
+The agent loads `checkpoints/best.pt` by default. A GPU is recommended for training.
 
 
 ## Running the MORTAR evolution loop
@@ -67,5 +101,6 @@ Results are saved to `archive.json` after each accepted config.
 
 - Python 3.10+ required
 - Core game (`main.py`, agents, etc.) — stdlib only, no install needed
+- Neural agent — requires `pip install torch`
 - MORTAR engine (`mortar.py`) — requires `pip install openai` and an OpenRouter API key in `.env`
 
