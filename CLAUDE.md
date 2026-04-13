@@ -36,7 +36,7 @@ Top-level files each have a single responsibility. Agents live in the `agents/` 
 | `__init__.py` | `Agent` ABC, `AGENTS` registry, `run_game()`, `evaluate_config()` |
 | `random_agent.py` | `RandomAgent` — reveals random unrevealed cells; baseline agent |
 | `pafg_agent.py` | `PAFGAgent` — four-stage constraint solver (First, Primary, Advanced, Guess) |
-| `neural_agent.py` | `NeuralAgent` — CNN-based DQN; includes model (`MinesweeperDQN`), state encoding, replay buffer, and `Trainer` class |
+| `neural_agent.py` | `NeuralAgent` — CNN-based DQN; includes model (`MinesweeperDQN`), state encoding, replay buffer, target network, and `Trainer` class |
 | `train_neural.py` | CLI training script for the neural agent (`python -m agents.train_neural`) |
 
 ## MORTAR Integration

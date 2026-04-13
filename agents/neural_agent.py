@@ -195,6 +195,7 @@ class Trainer:
         eps_end: float = 0.05,
         eps_decay_steps: int = 100_000,
         min_buffer: int = 1_000,
+        target_update_freq: int = 1_000,
         device: str | None = None,
     ) -> None:
         if device:
@@ -203,6 +204,9 @@ class Trainer:
             self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
         self.model = MinesweeperDQN().to(self.device)
+        self.target_net = MinesweeperDQN().to(self.device)
+        self.target_net.load_state_dict(self.model.state_dict())
+        self.target_net.eval()
         self.optimizer = optim.Adam(self.model.parameters(), lr=lr)
         self.buffer = ReplayBuffer(buffer_size)
 
@@ -212,6 +216,7 @@ class Trainer:
         self.eps_end = eps_end
         self.eps_decay_steps = eps_decay_steps
         self.min_buffer = min_buffer
+        self.target_update_freq = target_update_freq
 
         self.step_count = 0
         self.episode_count = 0
@@ -260,23 +265,33 @@ class Trainer:
         q_flat = q_all.reshape(self.batch_size, -1)       # (batch, 2*30*30)
         q_values = q_flat.gather(1, actions.unsqueeze(1)).squeeze(1)
 
-        # Target Q-values
+        # Target Q-values (computed with frozen target network)
         with torch.no_grad():
-            next_q = self.model(next_boards, next_ctxs)   # (batch, 2, 30, 30)
+            next_q = self.target_net(next_boards, next_ctxs)   # (batch, 2, 30, 30)
             next_q[~next_masks] = float("-inf")
             next_q_flat = next_q.reshape(self.batch_size, -1)
             next_max = next_q_flat.max(dim=1).values
-            # If all actions were masked (terminal state), next_max is -inf; clamp to 0
-            next_max = next_max.clamp(min=0.0)
-            targets = rewards + self.gamma * next_max * (1.0 - dones)
+            # next_max is -inf when all actions are masked (terminal states or edge
+            # cases like PENDING). Replace any non-finite value with 0 so the
+            # Bellman target stays well-defined.
+            next_max = torch.where(torch.isfinite(next_max), next_max, torch.zeros_like(next_max))
+            targets = rewards + self.gamma * next_max
 
         loss = nn.functional.mse_loss(q_values, targets)
+        if not torch.isfinite(loss):
+            return None  # skip corrupted batch rather than propagating NaN weights
+
         self.optimizer.zero_grad()
         loss.backward()
         nn.utils.clip_grad_norm_(self.model.parameters(), max_norm=10.0)
         self.optimizer.step()
+        self._maybe_update_target()
 
         return loss.item()
+
+    def _maybe_update_target(self) -> None:
+        if self.step_count % self.target_update_freq == 0:
+            self.target_net.load_state_dict(self.model.state_dict())
 
     def run_episode(self, config: GameConfig, seed: int | None = None) -> dict:
         """Play one full game, collecting transitions. Returns episode stats."""
@@ -330,6 +345,7 @@ class Trainer:
     def save_checkpoint(self, path: str) -> None:
         torch.save({
             "online_net": self.model.state_dict(),
+            "target_net": self.target_net.state_dict(),
             "optimizer": self.optimizer.state_dict(),
             "step_count": self.step_count,
             "episode_count": self.episode_count,
@@ -338,6 +354,7 @@ class Trainer:
     def load_checkpoint(self, path: str) -> None:
         ckpt = torch.load(path, map_location=self.device, weights_only=True)
         self.model.load_state_dict(ckpt["online_net"])
+        self.target_net.load_state_dict(ckpt["target_net"])
         self.optimizer.load_state_dict(ckpt["optimizer"])
         self.step_count = ckpt["step_count"]
         self.episode_count = ckpt["episode_count"]

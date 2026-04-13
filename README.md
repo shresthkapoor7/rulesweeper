@@ -48,24 +48,32 @@ Available agents: `random`, `pafg`, `neural`
 The `neural` agent uses a CNN-based DQN (Deep Q-Network) trained via reinforcement learning. It requires PyTorch.
 
 ```bash
+# CPU
 pip install torch
+
+# GPU (CUDA 12.x recommended)
+pip install torch --index-url https://download.pytorch.org/whl/cu124
 ```
 
 **Training:**
 
 ```bash
-python -m agents.train_neural --episodes 50000 --rows 9 --cols 9 --mines 10
+python -m agents.train_neural --device cuda --episodes 100000 --rows 9 --cols 9 --mines 10
 ```
 
-| Flag               | Default      | Description                     |
-| ------------------ | ------------ | ------------------------------- |
-| `--episodes`       | 50000        | Total training episodes         |
-| `--rows/cols/mines`| 9 / 9 / 10  | Board config for training       |
-| `--lr`             | 1e-4         | Learning rate                   |
-| `--eval-freq`      | 500          | Evaluate every N episodes       |
-| `--checkpoint-dir` | checkpoints/ | Where to save model checkpoints |
-| `--resume`         | —            | Resume from a checkpoint path   |
-| `--device`         | auto         | `cpu` or `cuda`                 |
+| Flag                | Default      | Description                                        |
+| ------------------- | ------------ | -------------------------------------------------- |
+| `--episodes`        | 50000        | Total training episodes                            |
+| `--rows/cols/mines` | 9 / 9 / 10   | Board config for training                          |
+| `--lr`              | 1e-4         | Learning rate                                      |
+| `--batch-size`      | 64           | Gradient update batch size                         |
+| `--buffer-size`     | 100000       | Replay buffer capacity                             |
+| `--eps-decay`       | 100000       | Steps over which epsilon decays from 1.0 → 0.05   |
+| `--target-update`   | 1000         | Sync target network every N steps                  |
+| `--eval-freq`       | 500          | Evaluate every N episodes                          |
+| `--checkpoint-dir`  | checkpoints/ | Where to save model checkpoints                    |
+| `--resume`          | —            | Resume from a checkpoint path                      |
+| `--device`          | auto         | `cpu` or `cuda`                                    |
 
 **Playing with a trained model:**
 

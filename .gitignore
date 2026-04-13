@@ -16,5 +16,5 @@ venv/
 .venv/
 
 # Training artifacts
-checkpoints/
+checkpoints*/
 *.pt
