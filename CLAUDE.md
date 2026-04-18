@@ -7,14 +7,14 @@ This is a base Minesweeper implementation built for the [MORTAR](https://arxiv.o
 ## Dev Rules
 
 - **Python 3.10+** required (`int | None` union syntax is used throughout)
-- **Run scripts from inside `mortar-minesweeper/`** — imports are flat/sibling-relative, not package-based
+- **Run scripts from inside `mortar-minesweeper/`** — imports assume this as the working directory
 - **No external dependencies in the core game** — stdlib only (`dataclasses`, `abc`, `collections`, `enum`, `argparse`)
 - **`mortar.py` requires `openai`** (`pip install openai`) and an `OPENROUTER_API_KEY` in `.env` — copy `.env.example`
-- No `__init__.py`; the directory is not a package
+- **Neural agent requires `torch`** (`pip install torch`) — only imported when the neural agent is used
 
 ## Architecture
 
-All files are flat in `mortar-minesweeper/`. Each has a single responsibility.
+Top-level files each have a single responsibility. Agents live in the `agents/` package.
 
 | File | Responsibility |
 |---|---|
@@ -24,11 +24,20 @@ All files are flat in `mortar-minesweeper/`. Each has a single responsibility.
 | `reveal_strategies.py` | `RevealStrategy` ABC + concrete implementations (`CascadeReveal`, `SingleReveal`) + `REVEAL_STRATEGIES` registry |
 | `mechanics_archive.py` | Named `GameConfig` presets + `MECHANICS` registry — catalog of evolved mechanic variants; `standard` is the MORTAR seed |
 | `mortar.py` | MORTAR mutation engine — LLM-guided `GameConfig` evolution via OpenRouter, flat JSON archive, CLI entry point |
-| `agents.py` | `Agent` ABC + `RandomAgent` + `run_game()` + `evaluate_config()` — headless execution and multi-run fitness evaluation |
 | `player.py` | `Player` — tracks health, moves, and statistics; exposes `metrics()` as the MORTAR fitness signal |
 | `game.py` | `MinesweeperGame` + `GameState` enum — orchestrates `Board` and `Player`; primary interface for both human play and MORTAR agents |
 | `renderer.py` | `TerminalRenderer` — stateless display; all output lives here; ANSI color when stdout is a tty |
 | `main.py` | Entry point — argparse CLI, input parsing, game loop |
+
+### `agents/` package
+
+| File | Responsibility |
+|---|---|
+| `__init__.py` | `Agent` ABC, `AGENTS` registry, `run_game()`, `evaluate_config()` |
+| `random_agent.py` | `RandomAgent` — reveals random unrevealed cells; baseline agent |
+| `pafg_agent.py` | `PAFGAgent` — four-stage constraint solver (First, Primary, Advanced, Guess) |
+| `neural_agent.py` | `NeuralAgent` — CNN-based DQN; includes model (`MinesweeperDQN`), state encoding, replay buffer, target network, and `Trainer` class |
+| `train_neural.py` | CLI training script for the neural agent (`python -m agents.train_neural`) |
 
 ## MORTAR Integration
 
@@ -126,6 +135,24 @@ class IslandReveal(RevealStrategy):
 REVEAL_STRATEGIES["island"] = IslandReveal
 ```
 
+### Adding a new agent
+
+1. Create a new file in `agents/` (e.g. `agents/my_agent.py`)
+2. Subclass `Agent` and implement `choose_action(self, game) -> tuple[str, int, int]`
+3. Constructor must accept `seed: int | None = None` for compatibility with `evaluate_config()`
+4. Import and register it in `agents/__init__.py` in the `AGENTS` dict
+
+```python
+from agents import Agent
+from game import MinesweeperGame
+
+class MyAgent(Agent):
+    def __init__(self, seed: int | None = None) -> None:
+        ...
+    def choose_action(self, game: MinesweeperGame) -> tuple[str, int, int]:
+        ...  # return ("reveal", row, col) or ("flag", row, col)
+```
+
 ### Adding a new configurable mechanic
 
 1. Add a field to `GameConfig` with a sensible default that preserves standard behavior
@@ -136,6 +163,11 @@ REVEAL_STRATEGIES["island"] = IslandReveal
 
 ```
 python main.py [options]
+
+  --agent NAME            Run a named agent: random, pafg, neural
+  --watch                 Render board while agent plays
+  --games INT             Number of games (agent mode, default: 1)
+  --seed INT              Random seed for reproducibility
 
   --rows INT              Grid height (default: 16)
   --cols INT              Grid width  (default: 16)
@@ -157,3 +189,20 @@ In-game commands:
 ```
 
 Columns are labeled A–P; rows are 0-indexed integers.
+
+### Training the neural agent
+
+```
+python -m agents.train_neural [options]
+
+  --episodes INT          Total training episodes (default: 50000)
+  --rows INT              Board rows for training (default: 9)
+  --cols INT              Board cols for training (default: 9)
+  --mines INT             Mine count for training (default: 10)
+  --lr FLOAT              Learning rate (default: 1e-4)
+  --batch-size INT        Batch size (default: 64)
+  --checkpoint-dir STR    Checkpoint directory (default: checkpoints/)
+  --eval-freq INT         Evaluate every N episodes (default: 500)
+  --resume PATH           Resume from checkpoint
+  --device STR            cpu or cuda (default: auto-detect)
+```
