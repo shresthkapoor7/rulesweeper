@@ -14,7 +14,3 @@ __pycache__/
 .env
 venv/
 .venv/
-
-# Training artifacts
-checkpoints*/
-*.pt

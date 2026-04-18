@@ -15,10 +15,10 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--episodes", type=int, default=50_000, help="Total training episodes")
     p.add_argument("--batch-size", type=int, default=64)
     p.add_argument("--lr", type=float, default=1e-4, help="Learning rate")
-    p.add_argument("--gamma", type=float, default=0.99, help="Discount factor")
+    p.add_argument("--gamma", type=float, default=0.95, help="Discount factor")
     p.add_argument("--buffer-size", type=int, default=100_000, help="Replay buffer capacity")
     p.add_argument("--eps-decay", type=int, default=100_000, help="Epsilon decay steps")
-    p.add_argument("--target-update", type=int, default=1_000, help="Sync target network every N steps")
+    p.add_argument("--tau", type=float, default=0.005, help="Polyak averaging coefficient for target network")
     p.add_argument("--checkpoint-dir", default="checkpoints", help="Checkpoint directory")
     p.add_argument("--checkpoint-freq", type=int, default=1000, help="Save every N episodes")
     p.add_argument("--eval-freq", type=int, default=500, help="Evaluate every N episodes")
@@ -84,7 +84,7 @@ def main() -> None:
         batch_size=args.batch_size,
         buffer_size=args.buffer_size,
         eps_decay_steps=args.eps_decay,
-        target_update_freq=args.target_update,
+        tau=args.tau,
         device=args.device,
     )
 

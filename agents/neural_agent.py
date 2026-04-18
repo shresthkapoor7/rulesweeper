@@ -93,19 +93,19 @@ def decode_action(flat_idx: int) -> tuple[str, int, int]:
 class MinesweeperDQN(nn.Module):
     def __init__(self) -> None:
         super().__init__()
-        self.conv = nn.Sequential(
+        self.conv_front = nn.Sequential(
             nn.Conv2d(NUM_CHANNELS, 64, 3, padding=1), nn.ReLU(),
             nn.Conv2d(64, 64, 3, padding=1), nn.ReLU(),
             nn.Conv2d(64, 128, 3, padding=1), nn.ReLU(),
+        )
+        self.conv_back = nn.Sequential(
             nn.Conv2d(128, 128, 3, padding=1), nn.ReLU(),
             nn.Conv2d(128, 64, 3, padding=1), nn.ReLU(),
         )
-        flat_size = 64 * MAX_BOARD * MAX_BOARD
-        self.head = nn.Sequential(
-            nn.Linear(flat_size + CONTEXT_DIM, 512), nn.ReLU(),
-            nn.Linear(512, 256), nn.ReLU(),
-            nn.Linear(256, NUM_ACTIONS * MAX_BOARD * MAX_BOARD),
-        )
+        # FiLM: project context to per-channel scale and shift for 128-ch features
+        self.film_proj = nn.Linear(CONTEXT_DIM, 128 * 2)
+        # Per-cell Q-values directly from conv features
+        self.q_head = nn.Conv2d(64, NUM_ACTIONS, 1)
 
     def forward(self, board: torch.Tensor, context: torch.Tensor) -> torch.Tensor:
         """
@@ -115,11 +115,14 @@ class MinesweeperDQN(nn.Module):
         Returns:
             q_values: (batch, 2, 30, 30)
         """
-        x = self.conv(board)
-        x = x.flatten(1)                         # (batch, 64*30*30)
-        x = torch.cat([x, context], dim=1)        # (batch, 64*30*30 + 9)
-        x = self.head(x)                          # (batch, 2*30*30)
-        return x.view(-1, NUM_ACTIONS, MAX_BOARD, MAX_BOARD)
+        x = self.conv_front(board)                          # (batch, 128, 30, 30)
+        # FiLM conditioning
+        film = self.film_proj(context)                      # (batch, 256)
+        gamma = film[:, :128].unsqueeze(-1).unsqueeze(-1) + 1.0  # residual init
+        beta = film[:, 128:].unsqueeze(-1).unsqueeze(-1)
+        x = gamma * x + beta
+        x = self.conv_back(x)                               # (batch, 64, 30, 30)
+        return self.q_head(x)                               # (batch, 2, 30, 30)
 
 
 # ── Replay Buffer ───────────────────────────────────────────────────
@@ -146,12 +149,14 @@ def compute_reward(result: dict, cfg: GameConfig) -> float:
     """Compute scalar reward from a game action result."""
     state = result["state"]
     if state == "won":
-        return 10.0
+        return 1.0
     if state == "lost":
-        return -10.0
+        return -1.0
     if result["hit_mine"]:
-        return -1.0 * (cfg.mine_damage / max(cfg.starting_health, 1))
-    return 1.0
+        return -0.3
+    n = len(result["newly_revealed"])
+    safe_cells = cfg.rows * cfg.cols - cfg.mine_count
+    return n / max(safe_cells, 1)
 
 
 # ── NeuralAgent (inference) ─────────────────────────────────────────
@@ -188,14 +193,14 @@ class Trainer:
     def __init__(
         self,
         lr: float = 1e-4,
-        gamma: float = 0.99,
+        gamma: float = 0.95,
         batch_size: int = 64,
         buffer_size: int = 100_000,
         eps_start: float = 1.0,
         eps_end: float = 0.05,
         eps_decay_steps: int = 100_000,
         min_buffer: int = 1_000,
-        target_update_freq: int = 1_000,
+        tau: float = 0.005,
         device: str | None = None,
     ) -> None:
         if device:
@@ -216,7 +221,7 @@ class Trainer:
         self.eps_end = eps_end
         self.eps_decay_steps = eps_decay_steps
         self.min_buffer = min_buffer
-        self.target_update_freq = target_update_freq
+        self.tau = tau
 
         self.step_count = 0
         self.episode_count = 0
@@ -265,33 +270,37 @@ class Trainer:
         q_flat = q_all.reshape(self.batch_size, -1)       # (batch, 2*30*30)
         q_values = q_flat.gather(1, actions.unsqueeze(1)).squeeze(1)
 
-        # Target Q-values (computed with frozen target network)
+        # Target Q-values — Double DQN: online net selects action, target net evaluates
         with torch.no_grad():
-            next_q = self.target_net(next_boards, next_ctxs)   # (batch, 2, 30, 30)
-            next_q[~next_masks] = float("-inf")
-            next_q_flat = next_q.reshape(self.batch_size, -1)
-            next_max = next_q_flat.max(dim=1).values
-            # next_max is -inf when all actions are masked (terminal states or edge
-            # cases like PENDING). Replace any non-finite value with 0 so the
-            # Bellman target stays well-defined.
-            next_max = torch.where(torch.isfinite(next_max), next_max, torch.zeros_like(next_max))
-            targets = rewards + self.gamma * next_max
+            # Action selection: online network
+            next_q_online = self.model(next_boards, next_ctxs)
+            next_q_online[~next_masks] = float("-inf")
+            next_actions = next_q_online.reshape(self.batch_size, -1).argmax(dim=1)
 
-        loss = nn.functional.mse_loss(q_values, targets)
+            # Action evaluation: target network
+            next_q_target = self.target_net(next_boards, next_ctxs)
+            next_q_target[~next_masks] = float("-inf")
+            next_q_flat = next_q_target.reshape(self.batch_size, -1)
+            next_max = next_q_flat.gather(1, next_actions.unsqueeze(1)).squeeze(1)
+            # Replace any non-finite value with 0 so the Bellman target stays well-defined.
+            next_max = torch.where(torch.isfinite(next_max), next_max, torch.zeros_like(next_max))
+            targets = rewards + self.gamma * next_max * (1 - dones)
+
+        loss = nn.functional.smooth_l1_loss(q_values, targets)
         if not torch.isfinite(loss):
             return None  # skip corrupted batch rather than propagating NaN weights
 
         self.optimizer.zero_grad()
         loss.backward()
-        nn.utils.clip_grad_norm_(self.model.parameters(), max_norm=10.0)
+        nn.utils.clip_grad_norm_(self.model.parameters(), max_norm=1.0)
         self.optimizer.step()
-        self._maybe_update_target()
+        self._soft_update_target()
 
         return loss.item()
 
-    def _maybe_update_target(self) -> None:
-        if self.step_count % self.target_update_freq == 0:
-            self.target_net.load_state_dict(self.model.state_dict())
+    def _soft_update_target(self) -> None:
+        for p, tp in zip(self.model.parameters(), self.target_net.parameters()):
+            tp.data.copy_(self.tau * p.data + (1.0 - self.tau) * tp.data)
 
     def run_episode(self, config: GameConfig, seed: int | None = None) -> dict:
         """Play one full game, collecting transitions. Returns episode stats."""
