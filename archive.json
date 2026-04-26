@@ -8,16 +8,39 @@
       "mine_damage": 1,
       "safe_first_click": true,
       "reveal_strategy": "cascade",
-      "flag_limit": null
+      "flag_limit": null,
+      "mine_behavior": "static"
     },
     "description": "Canonical 16\u00d716 standard minesweeper",
     "fitness": {
-      "win_rate": 0.0,
-      "avg_cells_revealed": 86.93333333333334,
-      "avg_progress_fraction": 0.4024691358024692,
-      "avg_mines_hit": 1.0,
-      "avg_turns": 5.6,
-      "n_games": 15
+      "per_agent": {
+        "random": {
+          "win_rate": 0.0,
+          "avg_cells_revealed": 71.0,
+          "avg_progress_fraction": 0.3287037037037037,
+          "avg_mines_hit": 1.0,
+          "avg_turns": 6.0,
+          "n_games": 3
+        },
+        "pafg": {
+          "win_rate": 0.6666666666666666,
+          "avg_cells_revealed": 214.66666666666666,
+          "avg_progress_fraction": 0.9938271604938271,
+          "avg_mines_hit": 0.3333333333333333,
+          "avg_turns": 121.33333333333333,
+          "n_games": 3
+        },
+        "neural": {
+          "win_rate": 0.0,
+          "avg_cells_revealed": 94.0,
+          "avg_progress_fraction": 0.4351851851851852,
+          "avg_mines_hit": 1.0,
+          "avg_turns": 30.666666666666668,
+          "n_games": 3
+        }
+      },
+      "skill_spread": 0.6651234567901234,
+      "n_games": 3
     },
     "parent_snapshot": null,
     "generation": 0
@@ -27,20 +50,43 @@
       "rows": 16,
       "cols": 16,
       "mine_count": 40,
-      "starting_health": 3,
-      "mine_damage": 2,
+      "starting_health": 1,
+      "mine_damage": 1,
       "safe_first_click": true,
       "reveal_strategy": "cascade",
-      "flag_limit": null
+      "flag_limit": 10,
+      "mine_behavior": "drifting"
     },
-    "description": "Increased starting health and mine damage to create a more forgiving yet still challenging experience with more room for error.",
+    "description": "Introduces a flag limit and moving mines, making precise flagging crucial and creating dynamic board states that challenge random guessing.",
     "fitness": {
-      "win_rate": 0.0,
-      "avg_cells_revealed": 92.6,
-      "avg_progress_fraction": 0.4287037037037037,
-      "avg_mines_hit": 2.0,
-      "avg_turns": 9.133333333333333,
-      "n_games": 15
+      "per_agent": {
+        "random": {
+          "win_rate": 0.0,
+          "avg_cells_revealed": 108.0,
+          "avg_progress_fraction": 0.5,
+          "avg_mines_hit": 1.0,
+          "avg_turns": 5.666666666666667,
+          "n_games": 3
+        },
+        "pafg": {
+          "win_rate": 0.0,
+          "avg_cells_revealed": 194.0,
+          "avg_progress_fraction": 0.8981481481481481,
+          "avg_mines_hit": 1.0,
+          "avg_turns": 107.0,
+          "n_games": 3
+        },
+        "neural": {
+          "win_rate": 0.0,
+          "avg_cells_revealed": 101.66666666666667,
+          "avg_progress_fraction": 0.47067901234567905,
+          "avg_mines_hit": 1.0,
+          "avg_turns": 17.333333333333332,
+          "n_games": 3
+        }
+      },
+      "skill_spread": 0.39814814814814814,
+      "n_games": 3
     },
     "parent_snapshot": {
       "rows": 16,
@@ -50,7 +96,64 @@
       "mine_damage": 1,
       "safe_first_click": true,
       "reveal_strategy": "cascade",
-      "flag_limit": null
+      "flag_limit": null,
+      "mine_behavior": "static"
+    },
+    "generation": 1
+  },
+  {
+    "config_snapshot": {
+      "rows": 16,
+      "cols": 16,
+      "mine_count": 40,
+      "starting_health": 3,
+      "mine_damage": 2,
+      "safe_first_click": true,
+      "reveal_strategy": "cascade",
+      "flag_limit": null,
+      "mine_behavior": "chain-reaction"
+    },
+    "description": "Chain-reaction mines with increased health and damage create a high-stakes environment where strategic mine avoidance is paramount, punishing random clicks severely.",
+    "fitness": {
+      "per_agent": {
+        "random": {
+          "win_rate": 0.0,
+          "avg_cells_revealed": 83.95,
+          "avg_progress_fraction": 0.3886574074074074,
+          "avg_mines_hit": 2.0,
+          "avg_turns": 6.75,
+          "n_games": 20
+        },
+        "pafg": {
+          "win_rate": 0.7,
+          "avg_cells_revealed": 199.85,
+          "avg_progress_fraction": 0.9252314814814815,
+          "avg_mines_hit": 0.6,
+          "avg_turns": 108.15,
+          "n_games": 20
+        },
+        "neural": {
+          "win_rate": 0.0,
+          "avg_cells_revealed": 112.95,
+          "avg_progress_fraction": 0.5229166666666667,
+          "avg_mines_hit": 2.0,
+          "avg_turns": 18.85,
+          "n_games": 20
+        }
+      },
+      "skill_spread": 0.5365740740740741,
+      "n_games": 20
+    },
+    "parent_snapshot": {
+      "rows": 16,
+      "cols": 16,
+      "mine_count": 40,
+      "starting_health": 1,
+      "mine_damage": 1,
+      "safe_first_click": true,
+      "reveal_strategy": "cascade",
+      "flag_limit": null,
+      "mine_behavior": "static"
     },
     "generation": 1
   },
@@ -60,19 +163,42 @@
       "cols": 16,
       "mine_count": 60,
       "starting_health": 2,
-      "mine_damage": 1,
+      "mine_damage": 2,
       "safe_first_click": true,
       "reveal_strategy": "cascade",
-      "flag_limit": null
+      "flag_limit": null,
+      "mine_behavior": "static"
     },
-    "description": "Increased mine density and slightly more health to make navigating a denser minefield more forgiving.",
+    "description": "Increasing mine density and damage, while providing a small health buffer, makes accurate mine identification and avoidance critical, severely penalizing random exploration.",
     "fitness": {
-      "win_rate": 0.0,
-      "avg_cells_revealed": 31.466666666666665,
-      "avg_progress_fraction": 0.16054421768707483,
-      "avg_mines_hit": 2.0,
-      "avg_turns": 7.533333333333333,
-      "n_games": 15
+      "per_agent": {
+        "random": {
+          "win_rate": 0.0,
+          "avg_cells_revealed": 35.3,
+          "avg_progress_fraction": 0.18010204081632653,
+          "avg_mines_hit": 1.0,
+          "avg_turns": 4.8,
+          "n_games": 20
+        },
+        "pafg": {
+          "win_rate": 0.1,
+          "avg_cells_revealed": 66.85,
+          "avg_progress_fraction": 0.3410714285714285,
+          "avg_mines_hit": 0.9,
+          "avg_turns": 54.9,
+          "n_games": 20
+        },
+        "neural": {
+          "win_rate": 0.0,
+          "avg_cells_revealed": 38.9,
+          "avg_progress_fraction": 0.19846938775510203,
+          "avg_mines_hit": 1.0,
+          "avg_turns": 7.6,
+          "n_games": 20
+        }
+      },
+      "skill_spread": 0.160969387755102,
+      "n_games": 20
     },
     "parent_snapshot": {
       "rows": 16,
@@ -82,7 +208,8 @@
       "mine_damage": 1,
       "safe_first_click": true,
       "reveal_strategy": "cascade",
-      "flag_limit": null
+      "flag_limit": null,
+      "mine_behavior": "static"
     },
     "generation": 1
   },
@@ -90,63 +217,55 @@
     "config_snapshot": {
       "rows": 16,
       "cols": 16,
-      "mine_count": 40,
-      "starting_health": 3,
-      "mine_damage": 2,
-      "safe_first_click": true,
-      "reveal_strategy": "cascade",
-      "flag_limit": 20
-    },
-    "description": "A limited flag count encourages more strategic flagging and potentially more risky unflagged reveals.",
-    "fitness": {
-      "win_rate": 0.0,
-      "avg_cells_revealed": 88.46666666666667,
-      "avg_progress_fraction": 0.40956790123456793,
-      "avg_mines_hit": 2.0,
-      "avg_turns": 8.2,
-      "n_games": 15
-    },
-    "parent_snapshot": {
-      "rows": 16,
-      "cols": 16,
-      "mine_count": 40,
-      "starting_health": 3,
-      "mine_damage": 2,
-      "safe_first_click": true,
-      "reveal_strategy": "cascade",
-      "flag_limit": null
-    },
-    "generation": 2
-  },
-  {
-    "config_snapshot": {
-      "rows": 16,
-      "cols": 16,
-      "mine_count": 55,
+      "mine_count": 60,
       "starting_health": 2,
       "mine_damage": 2,
       "safe_first_click": true,
       "reveal_strategy": "cascade",
-      "flag_limit": null
+      "flag_limit": 20,
+      "mine_behavior": "drifting"
     },
-    "description": "A slightly denser minefield with less health encourages more careful play and risk assessment.",
+    "description": "Drifting mines combined with a flag limit forces strategic flagging and anticipation of mine movement, penalizing random exploration.",
     "fitness": {
-      "win_rate": 0.0,
-      "avg_cells_revealed": 45.06666666666667,
-      "avg_progress_fraction": 0.22421227197346602,
-      "avg_mines_hit": 1.0,
-      "avg_turns": 5.4,
-      "n_games": 15
+      "per_agent": {
+        "random": {
+          "win_rate": 0.0,
+          "avg_cells_revealed": 34.0,
+          "avg_progress_fraction": 0.17346938775510204,
+          "avg_mines_hit": 1.0,
+          "avg_turns": 4.4,
+          "n_games": 20
+        },
+        "pafg": {
+          "win_rate": 0.35,
+          "avg_cells_revealed": 157.45,
+          "avg_progress_fraction": 0.8033163265306121,
+          "avg_mines_hit": 0.65,
+          "avg_turns": 126.55,
+          "n_games": 20
+        },
+        "neural": {
+          "win_rate": 0.0,
+          "avg_cells_revealed": 44.4,
+          "avg_progress_fraction": 0.22653061224489796,
+          "avg_mines_hit": 1.0,
+          "avg_turns": 12.55,
+          "n_games": 20
+        }
+      },
+      "skill_spread": 0.6298469387755101,
+      "n_games": 20
     },
     "parent_snapshot": {
       "rows": 16,
       "cols": 16,
-      "mine_count": 40,
-      "starting_health": 3,
+      "mine_count": 60,
+      "starting_health": 2,
       "mine_damage": 2,
       "safe_first_click": true,
       "reveal_strategy": "cascade",
-      "flag_limit": null
+      "flag_limit": null,
+      "mine_behavior": "static"
     },
     "generation": 2
   },
@@ -156,30 +275,614 @@
       "cols": 16,
       "mine_count": 50,
       "starting_health": 2,
+      "mine_damage": 2,
+      "safe_first_click": true,
+      "reveal_strategy": "cascade",
+      "flag_limit": null,
+      "mine_behavior": "static"
+    },
+    "description": "Increased mine density and damage with a small health buffer, making accurate mine identification and avoidance critical and penalizing random exploration.",
+    "fitness": {
+      "per_agent": {
+        "random": {
+          "win_rate": 0.0,
+          "avg_cells_revealed": 52.25,
+          "avg_progress_fraction": 0.2536407766990291,
+          "avg_mines_hit": 1.0,
+          "avg_turns": 6.15,
+          "n_games": 20
+        },
+        "pafg": {
+          "win_rate": 0.25,
+          "avg_cells_revealed": 121.75,
+          "avg_progress_fraction": 0.5910194174757282,
+          "avg_mines_hit": 0.75,
+          "avg_turns": 81.5,
+          "n_games": 20
+        },
+        "neural": {
+          "win_rate": 0.0,
+          "avg_cells_revealed": 73.55,
+          "avg_progress_fraction": 0.3570388349514563,
+          "avg_mines_hit": 1.0,
+          "avg_turns": 15.4,
+          "n_games": 20
+        }
+      },
+      "skill_spread": 0.33737864077669905,
+      "n_games": 20
+    },
+    "parent_snapshot": {
+      "rows": 16,
+      "cols": 16,
+      "mine_count": 40,
+      "starting_health": 1,
       "mine_damage": 1,
       "safe_first_click": true,
       "reveal_strategy": "cascade",
-      "flag_limit": 30
+      "flag_limit": null,
+      "mine_behavior": "static"
     },
-    "description": "Slightly reduces mine density and increases the flag limit to encourage more exploration and less penalty for misflagging.",
+    "generation": 1
+  },
+  {
+    "config_snapshot": {
+      "rows": 16,
+      "cols": 16,
+      "mine_count": 40,
+      "starting_health": 1,
+      "mine_damage": 1,
+      "safe_first_click": true,
+      "reveal_strategy": "cascade",
+      "flag_limit": 20,
+      "mine_behavior": "chain-reaction"
+    },
+    "description": "Reducing health and damage to standard levels while introducing a moderate flag limit, forcing more precise flagging and making every click more consequential.",
     "fitness": {
-      "win_rate": 0.0,
-      "avg_cells_revealed": 59.53333333333333,
-      "avg_progress_fraction": 0.2889967637540453,
-      "avg_mines_hit": 2.0,
-      "avg_turns": 8.333333333333334,
-      "n_games": 15
+      "per_agent": {
+        "random": {
+          "win_rate": 0.0,
+          "avg_cells_revealed": 78.7,
+          "avg_progress_fraction": 0.36435185185185187,
+          "avg_mines_hit": 1.0,
+          "avg_turns": 4.6,
+          "n_games": 20
+        },
+        "pafg": {
+          "win_rate": 0.65,
+          "avg_cells_revealed": 189.8,
+          "avg_progress_fraction": 0.8787037037037038,
+          "avg_mines_hit": 0.35,
+          "avg_turns": 88.8,
+          "n_games": 20
+        },
+        "neural": {
+          "win_rate": 0.05,
+          "avg_cells_revealed": 102.2,
+          "avg_progress_fraction": 0.47314814814814815,
+          "avg_mines_hit": 0.95,
+          "avg_turns": 16.25,
+          "n_games": 20
+        }
+      },
+      "skill_spread": 0.514351851851852,
+      "n_games": 20
+    },
+    "parent_snapshot": {
+      "rows": 16,
+      "cols": 16,
+      "mine_count": 40,
+      "starting_health": 3,
+      "mine_damage": 2,
+      "safe_first_click": true,
+      "reveal_strategy": "cascade",
+      "flag_limit": null,
+      "mine_behavior": "chain-reaction"
+    },
+    "generation": 2
+  },
+  {
+    "config_snapshot": {
+      "rows": 16,
+      "cols": 16,
+      "mine_count": 60,
+      "starting_health": 3,
+      "mine_damage": 3,
+      "safe_first_click": true,
+      "reveal_strategy": "cascade",
+      "flag_limit": null,
+      "mine_behavior": "chain-reaction"
+    },
+    "description": "Chain-reaction mines with significantly increased health and damage create an extremely high-stakes environment where a single mine hit can be catastrophic, demanding near-perfect strategic avoidance.",
+    "fitness": {
+      "per_agent": {
+        "random": {
+          "win_rate": 0.0,
+          "avg_cells_revealed": 32.35,
+          "avg_progress_fraction": 0.16505102040816327,
+          "avg_mines_hit": 1.0,
+          "avg_turns": 5.05,
+          "n_games": 20
+        },
+        "pafg": {
+          "win_rate": 0.15,
+          "avg_cells_revealed": 90.75,
+          "avg_progress_fraction": 0.4630102040816326,
+          "avg_mines_hit": 0.85,
+          "avg_turns": 73.65,
+          "n_games": 20
+        },
+        "neural": {
+          "win_rate": 0.0,
+          "avg_cells_revealed": 41.65,
+          "avg_progress_fraction": 0.2125,
+          "avg_mines_hit": 1.0,
+          "avg_turns": 7.65,
+          "n_games": 20
+        }
+      },
+      "skill_spread": 0.29795918367346935,
+      "n_games": 20
     },
     "parent_snapshot": {
       "rows": 16,
       "cols": 16,
       "mine_count": 60,
       "starting_health": 2,
+      "mine_damage": 2,
+      "safe_first_click": true,
+      "reveal_strategy": "cascade",
+      "flag_limit": null,
+      "mine_behavior": "static"
+    },
+    "generation": 2
+  },
+  {
+    "config_snapshot": {
+      "rows": 16,
+      "cols": 16,
+      "mine_count": 40,
+      "starting_health": 2,
+      "mine_damage": 2,
+      "safe_first_click": true,
+      "reveal_strategy": "cascade",
+      "flag_limit": 10,
+      "mine_behavior": "chain-reaction"
+    },
+    "description": "Chain reaction mines with increased health and damage create a high-stakes environment where strategic mine avoidance is paramount, punishing random clicks severely.",
+    "fitness": {
+      "per_agent": {
+        "random": {
+          "win_rate": 0.0,
+          "avg_cells_revealed": 68.95,
+          "avg_progress_fraction": 0.319212962962963,
+          "avg_mines_hit": 1.0,
+          "avg_turns": 5.65,
+          "n_games": 20
+        },
+        "pafg": {
+          "win_rate": 0.55,
+          "avg_cells_revealed": 194.85,
+          "avg_progress_fraction": 0.9020833333333333,
+          "avg_mines_hit": 0.45,
+          "avg_turns": 76.5,
+          "n_games": 20
+        },
+        "neural": {
+          "win_rate": 0.0,
+          "avg_cells_revealed": 97.55,
+          "avg_progress_fraction": 0.45162037037037034,
+          "avg_mines_hit": 1.0,
+          "avg_turns": 18.65,
+          "n_games": 20
+        }
+      },
+      "skill_spread": 0.5828703703703704,
+      "n_games": 20
+    },
+    "parent_snapshot": {
+      "rows": 16,
+      "cols": 16,
+      "mine_count": 40,
+      "starting_health": 1,
       "mine_damage": 1,
       "safe_first_click": true,
       "reveal_strategy": "cascade",
-      "flag_limit": null
+      "flag_limit": 10,
+      "mine_behavior": "drifting"
     },
     "generation": 2
+  },
+  {
+    "config_snapshot": {
+      "rows": 16,
+      "cols": 16,
+      "mine_count": 70,
+      "starting_health": 3,
+      "mine_damage": 3,
+      "safe_first_click": true,
+      "reveal_strategy": "cascade",
+      "flag_limit": 20,
+      "mine_behavior": "drifting"
+    },
+    "description": "Extremely high mine density and damage, coupled with increased health, forces highly precise mine identification and avoidance, punishing any random exploration.",
+    "fitness": {
+      "per_agent": {
+        "random": {
+          "win_rate": 0.0,
+          "avg_cells_revealed": 23.75,
+          "avg_progress_fraction": 0.12768817204301075,
+          "avg_mines_hit": 1.0,
+          "avg_turns": 4.85,
+          "n_games": 20
+        },
+        "pafg": {
+          "win_rate": 0.1,
+          "avg_cells_revealed": 123.35,
+          "avg_progress_fraction": 0.6631720430107526,
+          "avg_mines_hit": 0.9,
+          "avg_turns": 112.1,
+          "n_games": 20
+        },
+        "neural": {
+          "win_rate": 0.0,
+          "avg_cells_revealed": 33.15,
+          "avg_progress_fraction": 0.1782258064516129,
+          "avg_mines_hit": 1.0,
+          "avg_turns": 9.7,
+          "n_games": 20
+        }
+      },
+      "skill_spread": 0.5354838709677419,
+      "n_games": 20
+    },
+    "parent_snapshot": {
+      "rows": 16,
+      "cols": 16,
+      "mine_count": 60,
+      "starting_health": 2,
+      "mine_damage": 2,
+      "safe_first_click": true,
+      "reveal_strategy": "cascade",
+      "flag_limit": 20,
+      "mine_behavior": "drifting"
+    },
+    "generation": 3
+  },
+  {
+    "config_snapshot": {
+      "rows": 16,
+      "cols": 16,
+      "mine_count": 70,
+      "starting_health": 3,
+      "mine_damage": 2,
+      "safe_first_click": true,
+      "reveal_strategy": "cascade",
+      "flag_limit": null,
+      "mine_behavior": "chain-reaction"
+    },
+    "description": "Extremely high mine density and damage with significant health buffer create a perilous environment where strategic mine avoidance and anticipating chain reactions are critical for survival.",
+    "fitness": {
+      "per_agent": {
+        "random": {
+          "win_rate": 0.0,
+          "avg_cells_revealed": 26.75,
+          "avg_progress_fraction": 0.14381720430107528,
+          "avg_mines_hit": 2.0,
+          "avg_turns": 4.45,
+          "n_games": 20
+        },
+        "pafg": {
+          "win_rate": 0.0,
+          "avg_cells_revealed": 58.85,
+          "avg_progress_fraction": 0.3163978494623656,
+          "avg_mines_hit": 2.0,
+          "avg_turns": 50.5,
+          "n_games": 20
+        },
+        "neural": {
+          "win_rate": 0.0,
+          "avg_cells_revealed": 30.25,
+          "avg_progress_fraction": 0.16263440860215053,
+          "avg_mines_hit": 2.0,
+          "avg_turns": 5.15,
+          "n_games": 20
+        }
+      },
+      "skill_spread": 0.17258064516129032,
+      "n_games": 20
+    },
+    "parent_snapshot": {
+      "rows": 16,
+      "cols": 16,
+      "mine_count": 50,
+      "starting_health": 2,
+      "mine_damage": 2,
+      "safe_first_click": true,
+      "reveal_strategy": "cascade",
+      "flag_limit": null,
+      "mine_behavior": "static"
+    },
+    "generation": 2
+  },
+  {
+    "config_snapshot": {
+      "rows": 16,
+      "cols": 16,
+      "mine_count": 60,
+      "starting_health": 2,
+      "mine_damage": 3,
+      "safe_first_click": true,
+      "reveal_strategy": "cascade",
+      "flag_limit": 20,
+      "mine_behavior": "chain-reaction"
+    },
+    "description": "Increased mine density and damage, with a minimal health buffer, creates a highly punishing environment where every click must be strategic, as a single mistake can be fatal.",
+    "fitness": {
+      "per_agent": {
+        "random": {
+          "win_rate": 0.0,
+          "avg_cells_revealed": 36.2,
+          "avg_progress_fraction": 0.18469387755102043,
+          "avg_mines_hit": 1.0,
+          "avg_turns": 5.25,
+          "n_games": 20
+        },
+        "pafg": {
+          "win_rate": 0.0,
+          "avg_cells_revealed": 85.9,
+          "avg_progress_fraction": 0.438265306122449,
+          "avg_mines_hit": 1.0,
+          "avg_turns": 59.7,
+          "n_games": 20
+        },
+        "neural": {
+          "win_rate": 0.0,
+          "avg_cells_revealed": 47.65,
+          "avg_progress_fraction": 0.24311224489795918,
+          "avg_mines_hit": 1.0,
+          "avg_turns": 8.7,
+          "n_games": 20
+        }
+      },
+      "skill_spread": 0.25357142857142856,
+      "n_games": 20
+    },
+    "parent_snapshot": {
+      "rows": 16,
+      "cols": 16,
+      "mine_count": 40,
+      "starting_health": 1,
+      "mine_damage": 1,
+      "safe_first_click": true,
+      "reveal_strategy": "cascade",
+      "flag_limit": 20,
+      "mine_behavior": "chain-reaction"
+    },
+    "generation": 3
+  },
+  {
+    "config_snapshot": {
+      "rows": 16,
+      "cols": 16,
+      "mine_count": 40,
+      "starting_health": 1,
+      "mine_damage": 3,
+      "safe_first_click": true,
+      "reveal_strategy": "cascade",
+      "flag_limit": 20,
+      "mine_behavior": "drifting"
+    },
+    "description": "Reduced mine count to standard, but increased mine damage and reduced health, making survival highly dependent on precise mine identification and avoidance.",
+    "fitness": {
+      "per_agent": {
+        "random": {
+          "win_rate": 0.0,
+          "avg_cells_revealed": 68.0,
+          "avg_progress_fraction": 0.3148148148148148,
+          "avg_mines_hit": 1.0,
+          "avg_turns": 5.1,
+          "n_games": 20
+        },
+        "pafg": {
+          "win_rate": 0.65,
+          "avg_cells_revealed": 204.6,
+          "avg_progress_fraction": 0.9472222222222222,
+          "avg_mines_hit": 0.35,
+          "avg_turns": 109.7,
+          "n_games": 20
+        },
+        "neural": {
+          "win_rate": 0.0,
+          "avg_cells_revealed": 105.65,
+          "avg_progress_fraction": 0.48912037037037037,
+          "avg_mines_hit": 1.0,
+          "avg_turns": 29.0,
+          "n_games": 20
+        }
+      },
+      "skill_spread": 0.6324074074074073,
+      "n_games": 20
+    },
+    "parent_snapshot": {
+      "rows": 16,
+      "cols": 16,
+      "mine_count": 70,
+      "starting_health": 3,
+      "mine_damage": 3,
+      "safe_first_click": true,
+      "reveal_strategy": "cascade",
+      "flag_limit": 20,
+      "mine_behavior": "drifting"
+    },
+    "generation": 4
+  },
+  {
+    "config_snapshot": {
+      "rows": 16,
+      "cols": 16,
+      "mine_count": 60,
+      "starting_health": 1,
+      "mine_damage": 3,
+      "safe_first_click": true,
+      "reveal_strategy": "cascade",
+      "flag_limit": 20,
+      "mine_behavior": "chain-reaction"
+    },
+    "description": "Significantly increased mine density and damage with minimal health makes precise mine identification and avoidance absolutely critical, punishing random clicks with near-certain defeat.",
+    "fitness": {
+      "per_agent": {
+        "random": {
+          "win_rate": 0.0,
+          "avg_cells_revealed": 40.05,
+          "avg_progress_fraction": 0.20433673469387753,
+          "avg_mines_hit": 1.0,
+          "avg_turns": 5.45,
+          "n_games": 20
+        },
+        "pafg": {
+          "win_rate": 0.0,
+          "avg_cells_revealed": 84.1,
+          "avg_progress_fraction": 0.4290816326530612,
+          "avg_mines_hit": 1.0,
+          "avg_turns": 54.25,
+          "n_games": 20
+        },
+        "neural": {
+          "win_rate": 0.0,
+          "avg_cells_revealed": 40.85,
+          "avg_progress_fraction": 0.20841836734693878,
+          "avg_mines_hit": 1.0,
+          "avg_turns": 8.65,
+          "n_games": 20
+        }
+      },
+      "skill_spread": 0.22474489795918368,
+      "n_games": 20
+    },
+    "parent_snapshot": {
+      "rows": 16,
+      "cols": 16,
+      "mine_count": 40,
+      "starting_health": 1,
+      "mine_damage": 1,
+      "safe_first_click": true,
+      "reveal_strategy": "cascade",
+      "flag_limit": 20,
+      "mine_behavior": "chain-reaction"
+    },
+    "generation": 3
+  },
+  {
+    "config_snapshot": {
+      "rows": 16,
+      "cols": 16,
+      "mine_count": 50,
+      "starting_health": 2,
+      "mine_damage": 3,
+      "safe_first_click": true,
+      "reveal_strategy": "cascade",
+      "flag_limit": 20,
+      "mine_behavior": "drifting"
+    },
+    "description": "A moderate increase in mine density and damage, with a slight health buffer, makes accurate mine identification and avoidance critical, significantly penalizing random exploration.",
+    "fitness": {
+      "per_agent": {
+        "random": {
+          "win_rate": 0.0,
+          "avg_cells_revealed": 48.15,
+          "avg_progress_fraction": 0.2337378640776699,
+          "avg_mines_hit": 1.0,
+          "avg_turns": 5.35,
+          "n_games": 20
+        },
+        "pafg": {
+          "win_rate": 0.35,
+          "avg_cells_revealed": 146.75,
+          "avg_progress_fraction": 0.712378640776699,
+          "avg_mines_hit": 0.65,
+          "avg_turns": 103.9,
+          "n_games": 20
+        },
+        "neural": {
+          "win_rate": 0.0,
+          "avg_cells_revealed": 54.65,
+          "avg_progress_fraction": 0.2652912621359223,
+          "avg_mines_hit": 1.0,
+          "avg_turns": 11.1,
+          "n_games": 20
+        }
+      },
+      "skill_spread": 0.4786407766990291,
+      "n_games": 20
+    },
+    "parent_snapshot": {
+      "rows": 16,
+      "cols": 16,
+      "mine_count": 70,
+      "starting_health": 3,
+      "mine_damage": 3,
+      "safe_first_click": true,
+      "reveal_strategy": "cascade",
+      "flag_limit": 20,
+      "mine_behavior": "drifting"
+    },
+    "generation": 4
+  },
+  {
+    "config_snapshot": {
+      "rows": 16,
+      "cols": 16,
+      "mine_count": 70,
+      "starting_health": 2,
+      "mine_damage": 3,
+      "safe_first_click": true,
+      "reveal_strategy": "cascade",
+      "flag_limit": 20,
+      "mine_behavior": "drifting"
+    },
+    "description": "Significantly increased mine density and damage with a small health buffer, making precise mine identification and avoidance absolutely critical and punishing random clicks with near-certain defeat.",
+    "fitness": {
+      "per_agent": {
+        "random": {
+          "win_rate": 0.0,
+          "avg_cells_revealed": 22.4,
+          "avg_progress_fraction": 0.12043010752688171,
+          "avg_mines_hit": 1.0,
+          "avg_turns": 3.95,
+          "n_games": 20
+        },
+        "pafg": {
+          "win_rate": 0.1,
+          "avg_cells_revealed": 120.3,
+          "avg_progress_fraction": 0.646774193548387,
+          "avg_mines_hit": 0.9,
+          "avg_turns": 107.3,
+          "n_games": 20
+        },
+        "neural": {
+          "win_rate": 0.0,
+          "avg_cells_revealed": 25.6,
+          "avg_progress_fraction": 0.13763440860215054,
+          "avg_mines_hit": 1.0,
+          "avg_turns": 5.9,
+          "n_games": 20
+        }
+      },
+      "skill_spread": 0.5263440860215054,
+      "n_games": 20
+    },
+    "parent_snapshot": {
+      "rows": 16,
+      "cols": 16,
+      "mine_count": 50,
+      "starting_health": 2,
+      "mine_damage": 3,
+      "safe_first_click": true,
+      "reveal_strategy": "cascade",
+      "flag_limit": 20,
+      "mine_behavior": "drifting"
+    },
+    "generation": 5
   }
 ]

@@ -20,9 +20,25 @@ def extra_life() -> GameConfig:
     )
 
 
+def drifting_mines() -> GameConfig:
+    """Mines wander into adjacent unrevealed cells each turn; adjacency numbers update in place."""
+    return dataclasses.replace(GameConfig(), mine_behavior="drifting")
+
+
+def chain_reaction() -> GameConfig:
+    """Hitting a mine cascades to every adjacent mine. Player gets extra health to make it survivable."""
+    return dataclasses.replace(
+        GameConfig(),
+        mine_behavior="chain-reaction",
+        starting_health=3,
+    )
+
+
 # Archive of named mechanic presets.
 # MORTAR adds entries here when it produces an interesting evolved config.
 MECHANICS: dict[str, callable] = {
-    "standard":   standard,
-    "extra-life": extra_life,
+    "standard":       standard,
+    "extra-life":     extra_life,
+    "drifting-mines": drifting_mines,
+    "chain-reaction": chain_reaction,
 }

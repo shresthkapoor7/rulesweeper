@@ -22,8 +22,13 @@ import time
 
 from openai import OpenAI
 
-from agents import evaluate_config
-from agents.random_agent import RandomAgent
+from agents import AGENTS, evaluate_config_multi
+
+
+# Default agent panel — resolved against AGENTS at run time so the panel
+# automatically degrades when optional agents (e.g. neural, which needs torch)
+# aren't installed.
+DEFAULT_AGENTS = ["random", "pafg", "neural"]
 
 
 def _load_dotenv(path: str = ".env") -> None:
@@ -58,6 +63,7 @@ FIELD_CONSTRAINTS: dict[str, tuple | list] = {
     "reveal_strategy":  ["cascade", "single"],
     "flag_limit":       (0, None),       # None means unlimited; 0 means no flagging
     "safe_first_click": [True, False],
+    "mine_behavior":    ["static", "drifting", "chain-reaction"],
 }
 
 FIELD_DESCRIPTIONS: dict[str, str] = {
@@ -69,6 +75,7 @@ FIELD_DESCRIPTIONS: dict[str, str] = {
     "reveal_strategy":  '"cascade" (flood-fill) or "single" (one cell only)',
     "flag_limit":       "max flags allowed (null = unlimited, 0 = no flagging)",
     "safe_first_click": "true/false — guarantee first click is safe",
+    "mine_behavior":    '"static" (canonical), "drifting" (mines wander into adjacent unrevealed cells each turn; numbers update), or "chain-reaction" (hitting a mine cascades to all adjacent mines; pair with extra health)',
 }
 
 
@@ -149,17 +156,24 @@ def build_mutation_prompt(
         if e.get("description")
     ) or "  (empty — this is the first entry)"
 
-    win_pct   = f"{fitness['win_rate'] * 100:.1f}%"
-    prog_pct  = f"{fitness['avg_progress_fraction'] * 100:.1f}%"
+    per_agent = fitness["per_agent"]
+    n_games = next(iter(per_agent.values()))["n_games"]
+    agent_lines = "\n".join(
+        f"  {name:<7} win={f['win_rate']*100:5.1f}%  progress={f['avg_progress_fraction']*100:5.1f}%"
+        for name, f in per_agent.items()
+    )
+    spread_pct = f"{fitness['skill_spread'] * 100:+.1f}%"
 
-    return f"""You are mutating a Minesweeper GameConfig to discover novel, playable variants.
+    return f"""You are mutating a Minesweeper GameConfig to discover novel, playable variants where SKILL MATTERS.
+
+A skilled agent (PAFG constraint solver) should clearly outperform a random agent on these configs. Configs where everyone scores the same are boring — they reward luck, not strategy.
 
 Current config:
 {json.dumps(snapshot, indent=2)}
 
-Current fitness (RandomAgent, {fitness['n_games']} games):
-  win_rate:         {win_pct}
-  progress_fraction:{prog_pct}  (fraction of safe cells revealed on average)
+Current fitness ({n_games} games per agent):
+{agent_lines}
+  skill_spread (pafg − random progress): {spread_pct}
 
 Field reference:
 {field_ref}
@@ -168,7 +182,7 @@ Already in archive:
 {archive_summary}
 
 Propose ONE mutation that changes 1–3 fields to create an interesting gameplay variant.
-Aim for configs that are neither trivially easy nor trivially unwinnable.
+Aim for a LARGE skill spread: configs that are playable for the constraint solver but punishing for random play.
 Respond with JSON only — no explanation, no markdown:
 {{"changes": {{"field": value}}, "description": "one sentence describing the gameplay effect"}}"""
 
@@ -234,25 +248,60 @@ def parse_mutation_response(
 # Mutation loop
 # ---------------------------------------------------------------------------
 
+def _build_panel(agent_names: list[str]) -> dict[str, type]:
+    """Resolve agent names against the AGENTS registry. Skip names not present
+    (e.g. 'neural' when torch isn't installed) with a one-line warning."""
+    panel: dict[str, type] = {}
+    for name in agent_names:
+        if name in AGENTS:
+            panel[name] = AGENTS[name]
+        else:
+            print(f"  Warning: agent '{name}' unavailable — skipping.")
+    if not panel:
+        raise RuntimeError("Empty agent panel — at least one agent must be available.")
+    return panel
+
+
+def _multi_fitness(per_agent: dict[str, dict]) -> dict:
+    """Build the archive `fitness` dict from per-agent eval results."""
+    random_pf = per_agent.get("random", {}).get("avg_progress_fraction", 0.0)
+    pafg_pf = per_agent.get("pafg", {}).get("avg_progress_fraction", 0.0)
+    return {
+        "per_agent":    per_agent,
+        "skill_spread": pafg_pf - random_pf,
+        "n_games":      next(iter(per_agent.values()))["n_games"],
+    }
+
+
+def _format_per_agent(per_agent: dict[str, dict]) -> str:
+    return "  ".join(
+        f"{name}: win={f['win_rate']*100:.1f}% prog={f['avg_progress_fraction']*100:.1f}%"
+        for name, f in per_agent.items()
+    )
+
+
 def run_mortar_step(
     base_entry: dict,
     archive: dict,
-    n_games: int = 50,
+    panel: dict[str, type],
+    n_games: int = 20,
 ) -> dict | None:
     """
-    Run one MORTAR iteration: mutate base_entry's config via LLM, evaluate, return result.
-    Returns None if the LLM fails to produce a valid config after retries, or the config
-    fails admission criteria.
+    Run one MORTAR iteration: mutate base_entry's config via LLM, evaluate with the
+    full agent panel, return the new archive entry. Returns None if the LLM fails
+    to produce a valid config after retries, or the config fails admission criteria.
     """
     snapshot = base_entry["config_snapshot"]
     base_config = GameConfig(**snapshot)
 
     # Evaluate base config if not yet done (lazy init for seed entry)
     fitness = base_entry.get("fitness")
-    if fitness is None:
-        print("  Evaluating seed config...")
-        fitness = evaluate_config(RandomAgent, base_config, n_games=n_games)
+    if fitness is None or "per_agent" not in fitness:
+        print("  Evaluating base config across agent panel...")
+        per_agent = evaluate_config_multi(panel, base_config, n_games=n_games)
+        fitness = _multi_fitness(per_agent)
         base_entry["fitness"] = fitness
+        print(f"    {_format_per_agent(per_agent)}")
 
     client = _get_client()
     archive_entries = list(archive.values())
@@ -295,19 +344,27 @@ def run_mortar_step(
         print("  Failed to produce a valid config after 3 attempts.")
         return None
 
-    # Evaluate the new config
-    new_fitness = evaluate_config(RandomAgent, new_config, n_games=n_games)
+    # Evaluate the new config with the full panel
+    per_agent = evaluate_config_multi(panel, new_config, n_games=n_games)
+    new_fitness = _multi_fitness(per_agent)
     new_snapshot = dataclasses.asdict(new_config)
 
-    # Admission criteria — use progress_fraction, not win_rate.
-    # RandomAgent wins ~1% of games so win_rate is near-zero and noisy over 50 runs.
-    # progress_fraction (cells_revealed / safe_cells) is stable and meaningful.
-    pf = new_fitness["avg_progress_fraction"]
-    if pf < 0.05:
-        print(f"  Rejected: progress_fraction too low ({pf:.3f}) — config is nearly unplayable")
+    print(f"  {_format_per_agent(per_agent)}")
+
+    # Admission criteria:
+    # 1. Playable by a skilled agent — PAFG progress in [0.05, 0.95]
+    # 2. Skill matters — pafg progress at least 0.10 above random
+    pafg_pf = per_agent.get("pafg", {}).get("avg_progress_fraction", 0.0)
+    spread = new_fitness["skill_spread"]
+
+    if pafg_pf < 0.05:
+        print(f"  Rejected: PAFG progress too low ({pafg_pf:.3f}) — config is nearly unplayable")
         return None
-    if pf > 0.98:
-        print(f"  Rejected: progress_fraction too high ({pf:.3f}) — config is trivially easy")
+    if pafg_pf > 0.95:
+        print(f"  Rejected: PAFG progress too high ({pafg_pf:.3f}) — config is trivially easy")
+        return None
+    if spread < 0.10:
+        print(f"  Rejected: skill spread too small ({spread:+.3f}) — skill doesn't matter here")
         return None
 
     generation = (base_entry.get("generation") or 0) + 1
@@ -322,9 +379,10 @@ def run_mortar_step(
 
 def run_mortar_loop(
     n_iterations: int = 10,
-    n_games_per_eval: int = 50,
+    n_games_per_eval: int = 20,
     archive_path: str = "archive.json",
     delay: float = 10.0,
+    agent_names: list[str] | None = None,
 ) -> None:
     """
     Run the MORTAR evolution loop for n_iterations steps.
@@ -332,6 +390,9 @@ def run_mortar_loop(
     Saves the archive after each accepted config.
     delay: seconds to wait between iterations (respects free-tier rate limits).
     """
+    panel = _build_panel(agent_names or DEFAULT_AGENTS)
+    print(f"Agent panel: {', '.join(panel)}")
+
     _init_archive()
     load_archive(archive_path)
     save_archive(archive_path)  # persist seed entry immediately
@@ -345,7 +406,7 @@ def run_mortar_loop(
         desc = parent_entry.get("description", "?")
         print(f"\n[{i+1}/{n_iterations}] Mutating: {desc}")
 
-        result = run_mortar_step(parent_entry, ARCHIVE, n_games=n_games_per_eval)
+        result = run_mortar_step(parent_entry, ARCHIVE, panel=panel, n_games=n_games_per_eval)
         if result is None:
             print("  Skipped.")
             continue
@@ -359,7 +420,7 @@ def run_mortar_loop(
         accepted += 1
         f = result["fitness"]
         print(f"  Accepted: {result['description']}")
-        print(f"  win={f['win_rate']*100:.1f}%  progress={f['avg_progress_fraction']*100:.1f}%  gen={result['generation']}")
+        print(f"  skill_spread={f['skill_spread']*100:+.1f}%  gen={result['generation']}")
         save_archive(archive_path)
 
     print(f"\nDone. {accepted}/{n_iterations} configs accepted. Archive size: {len(ARCHIVE)}.")
@@ -373,9 +434,11 @@ def run_mortar_loop(
 if __name__ == "__main__":
     p = argparse.ArgumentParser(description="MORTAR — Minesweeper mechanic evolution")
     p.add_argument("--iterations", type=int,   default=10,            help="Number of mutation steps (default: 10)")
-    p.add_argument("--games",      type=int,   default=50,            help="Games per config evaluation (default: 50)")
+    p.add_argument("--games",      type=int,   default=20,            help="Games per agent per config (default: 20)")
     p.add_argument("--archive",    default="archive.json",            help="Archive file path (default: archive.json)")
     p.add_argument("--delay",      type=float, default=10.0,          help="Seconds between iterations for rate limiting (default: 10)")
+    p.add_argument("--agents",     nargs="+",  default=DEFAULT_AGENTS,
+                   help=f"Agents in evaluation panel (default: {' '.join(DEFAULT_AGENTS)})")
     args = p.parse_args()
 
     run_mortar_loop(
@@ -383,4 +446,5 @@ if __name__ == "__main__":
         n_games_per_eval=args.games,
         archive_path=args.archive,
         delay=args.delay,
+        agent_names=args.agents,
     )

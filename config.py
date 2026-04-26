@@ -27,3 +27,7 @@ class GameConfig:
 
     # Flag limit is the maximum number of flags that can be placed on the board.
     flag_limit: int | None = None
+
+    # Mine behavior controls how mines react between turns. See mine_behaviors.py for options.
+    # MORTAR can swap this to explore mechanics like drifting or chain-reacting mines.
+    mine_behavior: str = "static"

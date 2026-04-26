@@ -50,11 +50,15 @@ class Board:
         for r, c in self._rng.sample(candidates, count):
             self.grid[r][c].is_mine = True
 
-        self._compute_adjacency()
+        self.recompute_adjacency()
         self.mines_placed = True
 
-    def _compute_adjacency(self) -> None:
-        """Fill adjacent_mines for every non-mine cell. O(rows × cols)."""
+    def recompute_adjacency(self) -> None:
+        """
+        Fill adjacent_mines for every non-mine cell. O(rows × cols).
+        Public so MineBehavior implementations (e.g. DriftingMines) can call it
+        after relocating mines mid-game.
+        """
         for r in range(self.config.rows):
             for c in range(self.config.cols):
                 if not self.grid[r][c].is_mine:
@@ -109,6 +113,27 @@ class Board:
     def reveal_mine(self, r: int, c: int) -> None:
         """Mark a mine cell as revealed (called by MinesweeperGame on hit)."""
         self.grid[r][c].is_revealed = True
+
+    def move_mine(self, src: tuple[int, int], dst: tuple[int, int]) -> bool:
+        """
+        Move a mine from src to dst. Returns True iff the move was applied.
+        Refuses if src is not a mine, or dst is out-of-bounds, revealed, flagged,
+        or already a mine. Does not recompute adjacency — callers should batch
+        moves and call recompute_adjacency() once when done.
+        """
+        sr, sc = src
+        dr, dc = dst
+        if not self.in_bounds(dr, dc):
+            return False
+        src_cell = self.grid[sr][sc]
+        dst_cell = self.grid[dr][dc]
+        if not src_cell.is_mine:
+            return False
+        if dst_cell.is_revealed or dst_cell.is_flagged or dst_cell.is_mine:
+            return False
+        src_cell.is_mine = False
+        dst_cell.is_mine = True
+        return True
 
     def toggle_flag(self, r: int, c: int) -> bool:
         """

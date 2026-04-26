@@ -22,6 +22,7 @@ Top-level files each have a single responsibility. Agents live in the `agents/` 
 | `cell.py` | `Cell` dataclass — pure data (mine, revealed, flagged, adjacent count); only `Board` mutates it |
 | `board.py` | `Board` — owns the grid, mine placement (deferred to first click), adjacency computation, flagging, and delegates reveals to a `RevealStrategy` |
 | `reveal_strategies.py` | `RevealStrategy` ABC + concrete implementations (`CascadeReveal`, `SingleReveal`) + `REVEAL_STRATEGIES` registry |
+| `mine_behaviors.py` | `MineBehavior` ABC + concrete implementations (`StaticMines`, `DriftingMines`, `ChainReactionMines`) + `MINE_BEHAVIORS` registry |
 | `mechanics_archive.py` | Named `GameConfig` presets + `MECHANICS` registry — catalog of evolved mechanic variants; `standard` is the MORTAR seed |
 | `mortar.py` | MORTAR mutation engine — LLM-guided `GameConfig` evolution via OpenRouter, flat JSON archive, CLI entry point |
 | `player.py` | `Player` — tracks health, moves, and statistics; exposes `metrics()` as the MORTAR fitness signal |
@@ -62,6 +63,7 @@ Every `GameConfig` field is a candidate gene. The table below maps each field to
 | `safe_first_click` | `True` | First-click mine exclusion (`Board.place_mines`) |
 | `reveal_strategy` | `"cascade"` | Which `RevealStrategy` to use (`Board.__init__`) |
 | `flag_limit` | `None` | Max flags on board (`Board.toggle_flag`) |
+| `mine_behavior` | `"static"` | Which `MineBehavior` runs after each action (`MinesweeperGame._run_mine_behavior`) |
 
 ### Driving a game programmatically
 
@@ -108,6 +110,8 @@ Every call to `game.reveal()` and `game.flag()` returns a structured dict:
 |---|---|
 | `standard` | Canonical 16×16 minesweeper — the MORTAR seed config |
 | `extra-life` | Player starts with 2 HP; survives one mine hit before game over |
+| `drifting-mines` | Unflagged mines wander into adjacent unrevealed/unflagged cells each turn; adjacency numbers update in place. Flagging pins a mine in place |
+| `chain-reaction` | Hitting a mine cascades to every adjacent mine; player starts with 3 HP to make it survivable |
 
 Use a preset from the CLI — additional flags compose on top:
 ```
@@ -133,6 +137,26 @@ class IslandReveal(RevealStrategy):
         ...
 
 REVEAL_STRATEGIES["island"] = IslandReveal
+```
+
+### Adding a new mine behavior
+
+`MineBehavior` runs after every reveal/flag while the game is `ACTIVE`. It can mutate the board (move mines, recompute adjacency), reveal additional cells, and apply player damage. The game re-checks win/loss after the hook returns.
+
+1. Subclass `MineBehavior` in `mine_behaviors.py`
+2. Implement `on_post_action(self, board, game, action) -> None`
+3. Register it in `MINE_BEHAVIORS` with a string key
+4. Reference it via `GameConfig(mine_behavior="your_key")`
+
+The `action` dict has `action`, `coords`, `hit_mine`, and `newly_revealed` (a list — append to it if the behavior reveals more cells). Use `board.move_mine(src, dst)` for relocation (refuses dst that is revealed/flagged/already a mine) and `board.recompute_adjacency()` afterward. Use `game.player.take_damage()` for damage.
+
+```python
+class TeleportingMines(MineBehavior):
+    """Each turn, every mine teleports to a random unrevealed, non-mine cell."""
+    def on_post_action(self, board, game, action):
+        ...
+
+MINE_BEHAVIORS["teleporting"] = TeleportingMines
 ```
 
 ### Adding a new agent
@@ -176,8 +200,9 @@ python main.py [options]
   --damage INT            HP lost per mine hit (default: 1)
   --flag-limit INT        Max flags allowed (default: unlimited)
   --reveal-strategy STR   cascade | single (default: cascade)
+  --mine-behavior STR     static | drifting | chain-reaction (default: static)
   --no-safe-click         Disable safe first click guarantee
-  --mechanic NAME         Start from a named preset (standard, extra-life)
+  --mechanic NAME         Start from a named preset (standard, extra-life, drifting-mines, chain-reaction)
 ```
 
 In-game commands:

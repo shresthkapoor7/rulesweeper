@@ -1,5 +1,4 @@
 from __future__ import annotations
-import random
 from abc import ABC, abstractmethod
 from typing import TYPE_CHECKING
 
@@ -80,6 +79,24 @@ def evaluate_config(
     }
 
 
+def evaluate_config_multi(
+    agent_classes: dict[str, type[Agent]],
+    config: GameConfig,
+    n_games: int = 20,
+    base_seed: int | None = None,
+) -> dict[str, dict]:
+    """
+    Evaluate `config` with each agent in `agent_classes` for n_games.
+    Returns {agent_name: fitness_dict} where fitness_dict matches evaluate_config().
+
+    Same base_seed across agents means each agent plays the same boards — fair comparison.
+    """
+    return {
+        name: evaluate_config(cls, config, n_games=n_games, base_seed=base_seed)
+        for name, cls in agent_classes.items()
+    }
+
+
 def run_game(
     agent: Agent,
     config: GameConfig | None = None,
@@ -96,8 +113,6 @@ def run_game(
     Returns the final player_metrics dict augmented with 'state' and 'turns'.
     This dict is the primary result consumed by MORTAR's fitness evaluator.
     """
-    if seed is not None and isinstance(agent, RandomAgent):
-        agent._rng = random.Random(seed)
     game = MinesweeperGame(config, seed=seed)
     turns = 0
 

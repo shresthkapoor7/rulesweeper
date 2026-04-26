@@ -7,6 +7,7 @@ from config import GameConfig
 from game import MinesweeperGame, GameState
 from renderer import TerminalRenderer
 from reveal_strategies import REVEAL_STRATEGIES
+from mine_behaviors import MINE_BEHAVIORS
 from mechanics_archive import MECHANICS
 from agents import AGENTS, run_game, evaluate_config
 
@@ -36,6 +37,8 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--flag-limit",      type=int, default=None, dest="flag_limit")
     p.add_argument("--reveal-strategy", default=None, dest="reveal_strategy",
                    choices=list(REVEAL_STRATEGIES.keys()))
+    p.add_argument("--mine-behavior",   default=None, dest="mine_behavior",
+                   choices=list(MINE_BEHAVIORS.keys()))
     p.add_argument("--no-safe-click",   action="store_false", dest="safe_first_click")
 
     return p.parse_args()
@@ -45,7 +48,8 @@ def build_config(args: argparse.Namespace) -> GameConfig:
     """Build a GameConfig from parsed args, applying preset then CLI overrides."""
     base = MECHANICS[args.mechanic]() if args.mechanic else GameConfig()
     config_fields = {"rows", "cols", "mine_count", "starting_health",
-                     "mine_damage", "flag_limit", "reveal_strategy"}
+                     "mine_damage", "flag_limit", "reveal_strategy",
+                     "mine_behavior"}
     overrides = {k: v for k, v in vars(args).items()
                  if k in config_fields and v is not None}
     if args.safe_first_click is True and args.mechanic:
