@@ -884,5 +884,418 @@
       "mine_behavior": "drifting"
     },
     "generation": 5
+  },
+  {
+    "config_snapshot": {
+      "rows": 16,
+      "cols": 16,
+      "mine_count": 60,
+      "starting_health": 6,
+      "mine_damage": 3,
+      "safe_first_click": true,
+      "reveal_strategy": "cascade",
+      "flag_limit": null,
+      "mine_behavior": "gen-ceb23874"
+    },
+    "description": "Adjacent mines detonate when any mine in the vicinity is revealed, creating cascading explosions that punish clustered mines and require careful area denial.",
+    "fitness": {
+      "per_agent": {
+        "random": {
+          "win_rate": 0.0,
+          "avg_cells_revealed": 31.2,
+          "avg_progress_fraction": 0.15918367346938775,
+          "avg_mines_hit": 2.0,
+          "avg_turns": 4.0,
+          "n_games": 10
+        },
+        "pafg": {
+          "win_rate": 0.1,
+          "avg_cells_revealed": 82.6,
+          "avg_progress_fraction": 0.4214285714285714,
+          "avg_mines_hit": 1.8,
+          "avg_turns": 72.2,
+          "n_games": 10
+        },
+        "neural": {
+          "win_rate": 0.0,
+          "avg_cells_revealed": 27.9,
+          "avg_progress_fraction": 0.1423469387755102,
+          "avg_mines_hit": 2.0,
+          "avg_turns": 6.0,
+          "n_games": 10
+        }
+      },
+      "skill_spread": 0.2622448979591836,
+      "n_games": 10
+    },
+    "parent_snapshot": {
+      "rows": 16,
+      "cols": 16,
+      "mine_count": 60,
+      "starting_health": 3,
+      "mine_damage": 3,
+      "safe_first_click": true,
+      "reveal_strategy": "cascade",
+      "flag_limit": null,
+      "mine_behavior": "chain-reaction"
+    },
+    "generation": 3,
+    "code_kind": "mine_behavior",
+    "code_source": "class SymbioticMines(MineBehavior):\n    \"\"\"\n    When a mine is revealed (either by player click or a chain reaction),\n    all adjacent mines are also revealed and the player takes damage for each.\n    This is similar to chain reaction, but the detonation trigger is any\n    adjacent mine being revealed, not just the player hitting one.\n    \"\"\"\n\n    def on_post_action(self, board, game, action):\n        if not action.get(\"hit_mine\") and not action.get(\"newly_revealed\"):\n            return\n\n        # Collect all currently revealed mines that could trigger detonations.\n        # This includes the one just clicked (if hit_mine is true) and any\n        # revealed by cascade/chain reactions in the same turn.\n        triggering_mines = set()\n        if action.get(\"hit_mine\"):\n            triggering_mines.add(action[\"coords\"])\n        for r, c in action[\"newly_revealed\"]:\n            # If a newly revealed cell was a mine, it also triggers neighbors.\n            # This is crucial for chain reactions that reveal mines.\n            if board.grid[r][c].is_mine:\n                triggering_mines.add((r, c))\n\n        # Use a queue for a BFS-like traversal of mine detonations.\n        # We need to keep track of cells to process for detonations.\n        detonation_queue: deque[tuple[int, int]] = deque()\n        processed_for_detonation: set[tuple[int, int]] = set()\n\n        # Add initial triggers to the queue.\n        for r, c in triggering_mines:\n            if (r, c) not in processed_for_detonation:\n                detonation_queue.append((r, c))\n                processed_for_detonation.add((r, c))\n\n        while detonation_queue:\n            current_r, current_c = detonation_queue.popleft()\n\n            # If the current cell is not a mine, no detonation from here.\n            # This can happen if a chain reaction revealed a non-mine, or\n            # if the initial click was on a non-mine but neighbors were revealed.\n            if not board.grid[current_r][current_c].is_mine:\n                continue\n            \n            # If the mine is already revealed, no new detonation from this specific instance.\n            # However, it is important to check its neighbors if *this* mine was just revealed.\n            # The logic below handles checking neighbors of *any* revealed mine.\n\n            # Check all neighbors of the current coordinate\n            for nr, nc in board.neighbors(current_r, current_c):\n                neighbor_cell = board.grid[nr][nc]\n                \n                # If the neighbor is a mine and not yet revealed, it detonates.\n                if neighbor_cell.is_mine and not neighbor_cell.is_revealed:\n                    if (nr, nc) in processed_for_detonation:\n                        continue\n                        \n                    board.reveal_mine(nr, nc)\n                    action[\"newly_revealed\"].append((nr, nc))\n                    game.player.take_damage()\n                    \n                    if not game.player.is_alive():\n                        return # Player died, stop processing\n                    \n                    # Add this newly detonated mine to the queue for its neighbors to be checked.\n                    detonation_queue.append((nr, nc))\n                    processed_for_detonation.add((nr, nc))\n                # Even if the neighbor is not a mine, if it was *just revealed* and it was a mine itself,\n                # we still need to process *its* neighbors. This is handled by the initial triggering_mines logic.\n\n\n",
+    "code_key": "gen-ceb23874"
+  },
+  {
+    "config_snapshot": {
+      "rows": 16,
+      "cols": 16,
+      "mine_count": 60,
+      "starting_health": 5,
+      "mine_damage": 4,
+      "safe_first_click": true,
+      "reveal_strategy": "cascade",
+      "flag_limit": null,
+      "mine_behavior": "gen-013ba258"
+    },
+    "description": "Reveals adjacent safe cells when a mine is revealed, leading to rapid board clearing and making numerical deductions less reliable.",
+    "fitness": {
+      "per_agent": {
+        "random": {
+          "win_rate": 0.0,
+          "avg_cells_revealed": 36.6,
+          "avg_progress_fraction": 0.18673469387755104,
+          "avg_mines_hit": 2.0,
+          "avg_turns": 8.2,
+          "n_games": 10
+        },
+        "pafg": {
+          "win_rate": 1.0,
+          "avg_cells_revealed": 66.2,
+          "avg_progress_fraction": 0.3377551020408163,
+          "avg_mines_hit": 0.0,
+          "avg_turns": 97.0,
+          "n_games": 10
+        },
+        "neural": {
+          "win_rate": 0.0,
+          "avg_cells_revealed": 24.0,
+          "avg_progress_fraction": 0.12244897959183673,
+          "avg_mines_hit": 2.0,
+          "avg_turns": 11.7,
+          "n_games": 10
+        }
+      },
+      "skill_spread": 0.15102040816326529,
+      "n_games": 10
+    },
+    "parent_snapshot": {
+      "rows": 16,
+      "cols": 16,
+      "mine_count": 60,
+      "starting_health": 3,
+      "mine_damage": 3,
+      "safe_first_click": true,
+      "reveal_strategy": "cascade",
+      "flag_limit": null,
+      "mine_behavior": "chain-reaction"
+    },
+    "generation": 3,
+    "code_kind": "mine_behavior",
+    "code_source": "class EchoingMines(MineBehavior):\n    \"\"\"\n    When a mine is revealed, any adjacent unrevealed cells that are NOT mines\n    are also revealed. This can lead to rapid board clearing but also makes\n    it harder to deduce mine locations based on numbers.\n    \"\"\"\n\n    def on_post_action(self, board, game, action):\n        if not action.get(\"hit_mine\") and not action.get(\"newly_revealed\"):\n            return\n\n        # We care about the cells that were JUST revealed, either by the player\n        # or by a previous cascade.\n        cells_to_check = set(action.get(\"newly_revealed\", []))\n        if action[\"action\"] == \"reveal\":\n            cells_to_check.add(action[\"coords\"])\n\n        newly_revealed_cells_in_this_turn = set()\n\n        for r, c in list(cells_to_check): # Use list() to allow modification of cells_to_check\n            for nr, nc in board.neighbors(r, c):\n                if board.in_bounds(nr, nc):\n                    target_cell = board.grid[nr][nc]\n                    if not target_cell.is_revealed and not target_cell.is_mine and not target_cell.is_flagged:\n                        # This is a safe cell adjacent to a revealed mine. Reveal it.\n                        if board.grid[nr][nc].adjacent_mines == 0:\n                            # If it's a blank, cascade the reveal.\n                            cascade_queue = deque([(nr, nc)])\n                            while cascade_queue:\n                                queu_r, queu_c = cascade_queue.popleft()\n                                if board.grid[queu_r][queu_c].is_revealed: # Already revealed by another path\n                                    continue\n                                board.grid[queu_r][queu_c].is_revealed = True\n                                newly_revealed_cells_in_this_turn.add((queu_r, queu_c))\n                                if board.grid[queu_r][queu_c].adjacent_mines == 0:\n                                    for nnr, nnc in board.neighbors(queu_r, queu_c):\n                                        if board.in_bounds(nnr, nnc) and not board.grid[nnr][nnc].is_revealed and not board.grid[nnr][nnc].is_mine and not board.grid[nnr][nnc].is_flagged:\n                                            cascade_queue.append((nnr, nnc))\n                        else:\n                            # It's a number, just reveal it.\n                            board.grid[nr][nc].is_revealed = True\n                            newly_revealed_cells_in_this_turn.add((nr, nc))\n\n        # Add any newly revealed cells to the action's list for the game to re-check state.\n        # This is crucial for chain reactions and cascades to be properly handled.\n        action[\"newly_revealed\"].extend(list(newly_revealed_cells_in_this_turn))\n",
+    "code_key": "gen-013ba258"
+  },
+  {
+    "config_snapshot": {
+      "rows": 16,
+      "cols": 16,
+      "mine_count": 70,
+      "starting_health": 3,
+      "mine_damage": 3,
+      "safe_first_click": true,
+      "reveal_strategy": "gen-38221e87",
+      "flag_limit": 20,
+      "mine_behavior": "drifting"
+    },
+    "description": "Reveals all adjacent cells to a newly revealed zero-cell, creating rapid board clearing and making numerical deductions less reliable.",
+    "fitness": {
+      "per_agent": {
+        "random": {
+          "win_rate": 0.0,
+          "avg_cells_revealed": 29.6,
+          "avg_progress_fraction": 0.15913978494623657,
+          "avg_mines_hit": 1.0,
+          "avg_turns": 5.3,
+          "n_games": 10
+        },
+        "pafg": {
+          "win_rate": 0.0,
+          "avg_cells_revealed": 94.2,
+          "avg_progress_fraction": 0.5064516129032258,
+          "avg_mines_hit": 1.0,
+          "avg_turns": 88.8,
+          "n_games": 10
+        },
+        "neural": {
+          "win_rate": 0.0,
+          "avg_cells_revealed": 42.8,
+          "avg_progress_fraction": 0.23010752688172043,
+          "avg_mines_hit": 1.0,
+          "avg_turns": 23.7,
+          "n_games": 10
+        }
+      },
+      "skill_spread": 0.3473118279569892,
+      "n_games": 10
+    },
+    "parent_snapshot": {
+      "rows": 16,
+      "cols": 16,
+      "mine_count": 70,
+      "starting_health": 3,
+      "mine_damage": 3,
+      "safe_first_click": true,
+      "reveal_strategy": "cascade",
+      "flag_limit": 20,
+      "mine_behavior": "drifting"
+    },
+    "generation": 4,
+    "code_kind": "reveal_strategy",
+    "code_source": "class CascadingFlood(RevealStrategy):\n    \"\"\"\n    Standard Minesweeper cascade: BFS flood-fill from zero-adjacent cells.\n    Numbered border cells are revealed but not used as BFS seeds.\n    This strategy is modified to reveal all adjacent cells to a newly revealed zero-cell, \n    not just those that are unrevealed.\n    \"\"\"\n\n    def reveal(self, board: Board, r: int, c: int) -> list[tuple[int, int]]:\n        cell = board.grid[r][c]\n        if cell.is_revealed or cell.is_flagged:\n            return []\n        if cell.is_mine:\n            # If a mine is clicked, reveal it and stop. The game logic will handle damage.\n            cell.is_revealed = True\n            return [(r, c)]\n\n        # If the clicked cell is not a mine and not revealed/flagged\n        queue: deque[tuple[int, int]] = deque([(r, c)])\n        visited: set[tuple[int, int]] = {(r, c)}\n        revealed: list[tuple[int, int]] = []\n\n        while queue:\n            cr, cc = queue.popleft()\n            curr = board.grid[cr][cc]\n\n            # Only reveal if not already revealed or flagged and not a mine\n            if curr.is_revealed or curr.is_flagged or curr.is_mine:\n                continue\n            \n            curr.is_revealed = True\n            revealed.append((cr, cc))\n\n            # If the cell has no adjacent mines, cascade further.\n            # Crucially, we add *all* neighbors to the queue, regardless of their current state,\n            # to ensure the flood continues effectively.\n            if curr.adjacent_mines == 0:\n                for nr, nc in board.neighbors(cr, cc):\n                    if board.in_bounds(nr, nc) and (nr, nc) not in visited:\n                        visited.add((nr, nc))\n                        queue.append((nr, nc))\n        \n        return revealed",
+    "code_key": "gen-38221e87"
+  },
+  {
+    "config_snapshot": {
+      "rows": 16,
+      "cols": 16,
+      "mine_count": 60,
+      "starting_health": 5,
+      "mine_damage": 2,
+      "safe_first_click": true,
+      "reveal_strategy": "gen-a6aa2d57",
+      "flag_limit": 20,
+      "mine_behavior": "chain-reaction"
+    },
+    "description": "When a mine is revealed, it explodes and reveals all cells within a 2-cell radius, creating a larger, more dangerous cascade effect.",
+    "fitness": {
+      "per_agent": {
+        "random": {
+          "win_rate": 0.0,
+          "avg_cells_revealed": 25.4,
+          "avg_progress_fraction": 0.12959183673469388,
+          "avg_mines_hit": 3.0,
+          "avg_turns": 5.0,
+          "n_games": 10
+        },
+        "pafg": {
+          "win_rate": 0.0,
+          "avg_cells_revealed": 110.4,
+          "avg_progress_fraction": 0.563265306122449,
+          "avg_mines_hit": 3.0,
+          "avg_turns": 70.9,
+          "n_games": 10
+        },
+        "neural": {
+          "win_rate": 0.0,
+          "avg_cells_revealed": 33.8,
+          "avg_progress_fraction": 0.17244897959183672,
+          "avg_mines_hit": 3.0,
+          "avg_turns": 12.7,
+          "n_games": 10
+        }
+      },
+      "skill_spread": 0.4336734693877551,
+      "n_games": 10
+    },
+    "parent_snapshot": {
+      "rows": 16,
+      "cols": 16,
+      "mine_count": 60,
+      "starting_health": 1,
+      "mine_damage": 3,
+      "safe_first_click": true,
+      "reveal_strategy": "cascade",
+      "flag_limit": 20,
+      "mine_behavior": "chain-reaction"
+    },
+    "generation": 4,
+    "code_kind": "reveal_strategy",
+    "code_source": "class DepthChargeReveal(RevealStrategy):\n    \"\"\"\n    When a mine is revealed, it explodes and reveals all cells within a 2-cell radius.\n    This creates a larger cascade effect, but also a more dangerous one if a mine is hit.\n    \"\"\"\n\n    def reveal(self, board: Board, r: int, c: int) -> list[tuple[int, int]]:\n        cell = board.grid[r][c]\n        revealed_cells = []\n\n        if cell.is_mine:\n            # If a mine is revealed, trigger the depth charge effect\n            for dr in range(-2, 3):\n                for dc in range(-2, 3):\n                    nr, nc = r + dr, c + dc\n                    if board.in_bounds(nr, nc):\n                        target_cell = board.grid[nr][nc]\n                        if not target_cell.is_revealed and not target_cell.is_flagged:\n                            if target_cell.is_mine:\n                                board.reveal_mine(nr, nc) # Mark as revealed mine\n                            else:\n                                target_cell.is_revealed = True\n                            if (nr, nc) not in revealed_cells:\n                                revealed_cells.append((nr, nc))\n            # In this variant, hitting a mine doesn't immediately end the game, but it does cause damage\n            # The game controller will handle player damage based on 'mine_damage'.\n            return revealed_cells\n\n        # If not a mine, perform a standard cascade reveal\n        if cell.adjacent_mines > 0:\n            cell.is_revealed = True\n            revealed_cells.append((r, c))\n            return revealed_cells\n\n        queue: deque[tuple[int, int]] = deque([(r, c)])\n        visited: set[tuple[int, int]] = {(r, c)}\n\n        while queue:\n            cr, cc = queue.popleft()\n            curr = board.grid[cr][cc]\n            if curr.is_revealed or curr.is_flagged or curr.is_mine:\n                continue\n            curr.is_revealed = True\n            if (cr, cc) not in revealed_cells:\n                revealed_cells.append((cr, cc))\n            if curr.adjacent_mines == 0:\n                for nr, nc in board.neighbors(cr, cc):\n                    if board.in_bounds(nr, nc) and (nr, nc) not in visited:\n                        visited.add((nr, nc))\n                        queue.append((nr, nc))\n        return revealed_cells\n",
+    "code_key": "gen-a6aa2d57"
+  },
+  {
+    "config_snapshot": {
+      "rows": 16,
+      "cols": 16,
+      "mine_count": 60,
+      "starting_health": 7,
+      "mine_damage": 4,
+      "safe_first_click": true,
+      "reveal_strategy": "gen-b89cd409",
+      "flag_limit": null,
+      "mine_behavior": "gen-013ba258"
+    },
+    "description": "Reveals the clicked cell and adjacent cells with the same mine count, encouraging pattern recognition.",
+    "fitness": {
+      "per_agent": {
+        "random": {
+          "win_rate": 0.0,
+          "avg_cells_revealed": 12.1,
+          "avg_progress_fraction": 0.06173469387755102,
+          "avg_mines_hit": 2.0,
+          "avg_turns": 7.9,
+          "n_games": 10
+        },
+        "pafg": {
+          "win_rate": 0.9,
+          "avg_cells_revealed": 55.5,
+          "avg_progress_fraction": 0.28316326530612246,
+          "avg_mines_hit": 0.2,
+          "avg_turns": 89.0,
+          "n_games": 10
+        },
+        "neural": {
+          "win_rate": 0.0,
+          "avg_cells_revealed": 11.6,
+          "avg_progress_fraction": 0.05918367346938775,
+          "avg_mines_hit": 2.0,
+          "avg_turns": 9.0,
+          "n_games": 10
+        }
+      },
+      "skill_spread": 0.22142857142857145,
+      "n_games": 10
+    },
+    "parent_snapshot": {
+      "rows": 16,
+      "cols": 16,
+      "mine_count": 60,
+      "starting_health": 5,
+      "mine_damage": 4,
+      "safe_first_click": true,
+      "reveal_strategy": "cascade",
+      "flag_limit": null,
+      "mine_behavior": "gen-013ba258"
+    },
+    "generation": 4,
+    "code_kind": "reveal_strategy",
+    "code_source": "class ProximityReveal(RevealStrategy):\n    \"\"\"\n    Reveals the clicked cell and any adjacent cells with the same number of adjacent mines.\n    This encourages identifying clusters of cells with similar mine counts.\n    \"\"\"\n\n    def reveal(self, board: Board, r: int, c: int) -> list[tuple[int, int]]:\n        cell = board.grid[r][c]\n        if cell.is_revealed or cell.is_flagged:\n            return []\n\n        cell.is_revealed = True\n        revealed_cells = [(r, c)]\n        target_adjacent_mines = cell.adjacent_mines\n\n        if target_adjacent_mines == 0:\n            # If it's a zero, cascade like standard minesweeper to ensure progress\n            queue: deque[tuple[int, int]] = deque([(r, c)])\n            visited: set[tuple[int, int]] = {(r, c)}\n            while queue:\n                cr, cc = queue.popleft()\n                curr = board.grid[cr][cc]\n                if curr.is_revealed or curr.is_flagged or curr.is_mine:\n                    continue\n                curr.is_revealed = True\n                revealed_cells.append((cr, cc))\n                if curr.adjacent_mines == 0:\n                    for nr, nc in board.neighbors(cr, cc):\n                        if board.in_bounds(nr, nc) and (nr, nc) not in visited:\n                            visited.add((nr, nc))\n                            queue.append((nr, nc))\n        else:\n            # Reveal adjacent cells with the same mine count\n            for nr, nc in board.neighbors(r, c):\n                if board.in_bounds(nr, nc):\n                    neighbor_cell = board.grid[nr][nc]\n                    if not neighbor_cell.is_revealed and not neighbor_cell.is_flagged and neighbor_cell.adjacent_mines == target_adjacent_mines:\n                        neighbor_cell.is_revealed = True\n                        revealed_cells.append((nr, nc))\n        \n        return revealed_cells",
+    "code_key": "gen-b89cd409"
+  },
+  {
+    "config_snapshot": {
+      "rows": 16,
+      "cols": 16,
+      "mine_count": 70,
+      "starting_health": 3,
+      "mine_damage": 2,
+      "safe_first_click": true,
+      "reveal_strategy": "gen-83c805a6",
+      "flag_limit": 20,
+      "mine_behavior": "drifting"
+    },
+    "description": "Reveals the clicked cell and all adjacent cells with the same mine count, plus a cascade from any newly revealed zeros.",
+    "fitness": {
+      "per_agent": {
+        "random": {
+          "win_rate": 0.0,
+          "avg_cells_revealed": 15.5,
+          "avg_progress_fraction": 0.08333333333333333,
+          "avg_mines_hit": 2.0,
+          "avg_turns": 9.8,
+          "n_games": 10
+        },
+        "pafg": {
+          "win_rate": 0.3,
+          "avg_cells_revealed": 101.1,
+          "avg_progress_fraction": 0.5435483870967741,
+          "avg_mines_hit": 1.5,
+          "avg_turns": 108.0,
+          "n_games": 10
+        },
+        "neural": {
+          "win_rate": 0.0,
+          "avg_cells_revealed": 28.5,
+          "avg_progress_fraction": 0.1532258064516129,
+          "avg_mines_hit": 2.0,
+          "avg_turns": 26.1,
+          "n_games": 10
+        }
+      },
+      "skill_spread": 0.4602150537634408,
+      "n_games": 10
+    },
+    "parent_snapshot": {
+      "rows": 16,
+      "cols": 16,
+      "mine_count": 70,
+      "starting_health": 2,
+      "mine_damage": 3,
+      "safe_first_click": true,
+      "reveal_strategy": "cascade",
+      "flag_limit": 20,
+      "mine_behavior": "drifting"
+    },
+    "generation": 6,
+    "code_kind": "reveal_strategy",
+    "code_source": "class ProximityReveal(RevealStrategy):\n    \"\"\"\n    Reveals the clicked cell and any adjacent cells with the same number of adjacent mines.\n    This encourages players to identify groups of cells with the same difficulty level.\n    \"\"\"\n\n    def reveal(self, board: Board, r: int, c: int) -> list[tuple[int, int]]:\n        cell = board.grid[r][c]\n        if cell.is_revealed or cell.is_flagged:\n            return []\n\n        target_adjacent_mines = cell.adjacent_mines\n        cell.is_revealed = True\n        revealed: list[tuple[int, int]] = [(r, c)]\n\n        cells_to_check: deque[tuple[int, int]] = deque([(r, c)])\n        visited: set[tuple[int, int]] = {(r, c)}\n\n        while cells_to_check:\n            cr, cc = cells_to_check.popleft()\n            current_cell = board.grid[cr][cc]\n\n            if current_cell.adjacent_mines == target_adjacent_mines and not current_cell.is_revealed and not current_cell.is_flagged and not current_cell.is_mine:\n                current_cell.is_revealed = True\n                revealed.append((cr, cc))\n\n                # Add neighbors to check if they are also part of this proximity group\n                for nr, nc in board.neighbors(cr, cc):\n                    if board.in_bounds(nr, nc) and (nr, nc) not in visited:\n                        neighbor_cell = board.grid[nr][nc]\n                        # Only add neighbors that *could* be part of the proximity group or lead to it\n                        # This prevents infinite loops and unnecessary checks while still exploring contiguous areas\n                        if neighbor_cell.adjacent_mines == target_adjacent_mines or neighbor_cell.adjacent_mines == 0:\n                             visited.add((nr, nc))\n                             cells_to_check.append((nr, nc))\n            elif current_cell.adjacent_mines == 0:\n                # If it's a zero, explore its neighbors to potentially find more of the target group\n                for nr, nc in board.neighbors(cr, cc):\n                     if board.in_bounds(nr, nc) and (nr, nc) not in visited:\n                        neighbor_cell = board.grid[nr][nc]\n                        if neighbor_cell.adjacent_mines == target_adjacent_mines or neighbor_cell.adjacent_mines == 0:\n                            visited.add((nr, nc))\n                            cells_to_check.append((nr, nc))\n\n        # After the initial proximity reveal, perform a cascade reveal on any newly revealed zero cells\n        # This ensures that contiguous zero areas are still cleared efficiently.\n        cascading_revealed: list[tuple[int, int]] = []\n        queue: deque[tuple[int, int]] = deque()\n\n        for rev_r, rev_c in revealed:\n            if board.grid[rev_r][rev_c].adjacent_mines == 0:\n                queue.append((rev_r, rev_c))\n                # Ensure we don't re-reveal cells already in the initial 'revealed' list unnecessarily\n                # and prevent cycles by marking them as visited for this cascade phase\n                for nbr_r, nbc in board.neighbors(rev_r, rev_c):\n                    if board.in_bounds(nbr_r, nbc) and not board.grid[nbr_r][nbc].is_revealed and not board.grid[nbr_r][nbc].is_flagged:\n                        board.grid[nbr_r][nbc].is_revealed = True\n                        cascading_revealed.append((nbr_r, nbc))\n                        queue.append((nbr_r, nbc))\n\n        # Standard cascade reveal for zero cells\n        cascade_visited: set[tuple[int, int]] = set()\n        while queue:\n            cr, cc = queue.popleft()\n            curr_cell = board.grid[cr][cc]\n\n            if curr_cell.is_revealed or curr_cell.is_flagged or curr_cell.is_mine:\n                continue\n\n            curr_cell.is_revealed = True\n            if (cr, cc) not in revealed and (cr, cc) not in cascading_revealed: # Avoid adding duplicates\n                revealed.append((cr, cc))\n\n            if curr_cell.adjacent_mines == 0:\n                for nr, nc in board.neighbors(cr, cc):\n                    if board.in_bounds(nr, nc) and (nr, nc) not in cascade_visited and not board.grid[nr][nc].is_revealed and not board.grid[nr][nc].is_flagged:\n                        cascade_visited.add((nr, nc))\n                        queue.append((nr, nc))\n                        if (nr, nc) not in revealed and (nr, nc) not in cascading_revealed:\n                            board.grid[nr][nc].is_revealed = True\n                            revealed.append((nr, nc))\n\n        return revealed",
+    "code_key": "gen-83c805a6"
+  },
+  {
+    "config_snapshot": {
+      "rows": 16,
+      "cols": 16,
+      "mine_count": 60,
+      "starting_health": 5,
+      "mine_damage": 2,
+      "safe_first_click": true,
+      "reveal_strategy": "gen-0d68eee0",
+      "flag_limit": 20,
+      "mine_behavior": "chain-reaction"
+    },
+    "description": "Reveals adjacent safe cells when a numbered cell is revealed, rewarding careful exploration around known mine counts.",
+    "fitness": {
+      "per_agent": {
+        "random": {
+          "win_rate": 0.0,
+          "avg_cells_revealed": 20.9,
+          "avg_progress_fraction": 0.10663265306122448,
+          "avg_mines_hit": 3.0,
+          "avg_turns": 5.8,
+          "n_games": 10
+        },
+        "pafg": {
+          "win_rate": 0.3,
+          "avg_cells_revealed": 127.3,
+          "avg_progress_fraction": 0.6494897959183673,
+          "avg_mines_hit": 2.1,
+          "avg_turns": 51.4,
+          "n_games": 10
+        },
+        "neural": {
+          "win_rate": 0.0,
+          "avg_cells_revealed": 26.7,
+          "avg_progress_fraction": 0.13622448979591836,
+          "avg_mines_hit": 3.0,
+          "avg_turns": 9.4,
+          "n_games": 10
+        }
+      },
+      "skill_spread": 0.5428571428571428,
+      "n_games": 10
+    },
+    "parent_snapshot": {
+      "rows": 16,
+      "cols": 16,
+      "mine_count": 60,
+      "starting_health": 5,
+      "mine_damage": 2,
+      "safe_first_click": true,
+      "reveal_strategy": "gen-a6aa2d57",
+      "flag_limit": 20,
+      "mine_behavior": "chain-reaction"
+    },
+    "generation": 5,
+    "code_kind": "reveal_strategy",
+    "code_source": "class StrategicProximityReveal(RevealStrategy):\n    \"\"\"\n    When a cell is revealed, if it has adjacent mines, it also reveals all its\n    unrevealed, unflagged neighbors that are NOT mines. This encourages strategic\n    clearing around numbered cells.\n    \"\"\"\n\n    def reveal(self, board: Board, r: int, c: int) -> list[tuple[int, int]]:\n        cell = board.grid[r][c]\n        revealed_cells = []\n\n        if cell.is_revealed or cell.is_flagged:\n            return []\n\n        cell.is_revealed = True\n        revealed_cells.append((r, c))\n\n        if cell.adjacent_mines > 0:\n            for nr, nc in board.neighbors(r, c):\n                neighbor_cell = board.grid[nr][nc]\n                if not neighbor_cell.is_revealed and not neighbor_cell.is_flagged and not neighbor_cell.is_mine:\n                    neighbor_cell.is_revealed = True\n                    revealed_cells.append((nr, nc))\n\n        return revealed_cells",
+    "code_key": "gen-0d68eee0"
   }
 ]

@@ -95,15 +95,36 @@ python mortar.py --iterations 10 --games 50
 ```
 
 
-| Flag           | Default      | Description                                |
-| -------------- | ------------ | ------------------------------------------ |
-| `--iterations` | 10           | Number of mutation steps                   |
-| `--games`      | 50           | Games per config evaluation                |
-| `--delay`      | 10           | Seconds between iterations (rate limiting) |
-| `--archive`    | archive.json | Archive file path                          |
+| Flag           | Default      | Description                                                              |
+| -------------- | ------------ | ------------------------------------------------------------------------ |
+| `--iterations` | 10           | Number of mutation steps                                                 |
+| `--games`      | 50           | Games per config evaluation                                              |
+| `--delay`      | 10           | Seconds between iterations (rate limiting)                               |
+| `--archive`    | archive.json | Archive file path                                                       |
+| `--agents`     | random pafg neural | Agents in the evaluation panel                                     |
+| `--mode`       | mixed        | `param` (tune fields), `code` (generate new mechanic classes), `mixed` |
 
 
 Results are saved to `archive.json` after each accepted config.
+
+### Code-mutation mode
+
+In `--mode code` (or 50% of `mixed` iterations) the LLM authors a brand-new
+`MineBehavior` or `RevealStrategy` subclass. The source is AST-validated
+(no imports, no introspection escapes), exec'd in a curated namespace, and
+smoke-tested before going through the same panel evaluation as parameter
+mutations. Accepted classes are stored in `archive.json` under a deterministic
+`gen-XXXXXXXX` key and can be played directly:
+
+```bash
+python main.py --mine-behavior gen-abc12345
+```
+
+**Trust caveat.** Generated code is `exec()`'d in-process. The AST denylist
+catches the obvious foot-guns but is not a security boundary — a determined
+snippet can still escape via attribute introspection. Treat `archive.json`
+with non-null `code_source` fields as executable code, not data, and only
+run MORTAR against trusted models. Subprocess isolation is a follow-up.
 
 ## Setup
 

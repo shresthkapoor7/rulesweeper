@@ -12,6 +12,18 @@ from mechanics_archive import MECHANICS
 from agents import AGENTS, run_game, evaluate_config
 
 
+# Pull any LLM-generated mechanics from archive.json into the live registries
+# so --mine-behavior gen-XXXXXXXX / --reveal-strategy gen-XXXXXXXX work.
+# Failures (missing file, broken snippet) are non-fatal — built-ins still run.
+try:
+    from code_mutations import load_archive_file, register_all_from_archive
+    _entries = load_archive_file()
+    if _entries:
+        register_all_from_archive({i: e for i, e in enumerate(_entries)})
+except Exception as _e:  # pragma: no cover — best-effort load
+    pass
+
+
 def parse_args() -> argparse.Namespace:
     p = argparse.ArgumentParser(description="Minesweeper (MORTAR base game)")
 
@@ -35,10 +47,12 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--health",          type=int, default=None, dest="starting_health")
     p.add_argument("--damage",          type=int, default=None, dest="mine_damage")
     p.add_argument("--flag-limit",      type=int, default=None, dest="flag_limit")
+    # No choices= here: generated 'gen-XXXXXXXX' keys (loaded from archive.json
+    # at module import) are also valid. Validation happens after build_config.
     p.add_argument("--reveal-strategy", default=None, dest="reveal_strategy",
-                   choices=list(REVEAL_STRATEGIES.keys()))
+                   help=f"Reveal strategy (built-in: {', '.join(sorted(REVEAL_STRATEGIES))})")
     p.add_argument("--mine-behavior",   default=None, dest="mine_behavior",
-                   choices=list(MINE_BEHAVIORS.keys()))
+                   help=f"Mine behavior (built-in: {', '.join(sorted(MINE_BEHAVIORS))})")
     p.add_argument("--no-safe-click",   action="store_false", dest="safe_first_click")
 
     return p.parse_args()
@@ -160,6 +174,13 @@ def game_loop(game: MinesweeperGame, renderer: TerminalRenderer) -> None:
 def main() -> None:
     args = parse_args()
     config = build_config(args)
+
+    if config.mine_behavior not in MINE_BEHAVIORS:
+        valid = ", ".join(sorted(MINE_BEHAVIORS))
+        sys.exit(f"Invalid --mine-behavior {config.mine_behavior!r}. Valid: {valid}")
+    if config.reveal_strategy not in REVEAL_STRATEGIES:
+        valid = ", ".join(sorted(REVEAL_STRATEGIES))
+        sys.exit(f"Invalid --reveal-strategy {config.reveal_strategy!r}. Valid: {valid}")
 
     if args.agent:
         run_agent_cli(args, config)
