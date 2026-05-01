@@ -5,6 +5,7 @@ from config import GameConfig
 from board import Board
 from player import Player
 from cell import Cell
+from mine_behaviors import MINE_BEHAVIORS
 
 # Represents the current state of the game.
 # "Pending" is the state before the first reveal.
@@ -40,6 +41,7 @@ class MinesweeperGame:
     def _init_components(self) -> None:
         self.board = Board(self.config, seed=self._seed)
         self.player = Player(self.config)
+        self._mine_behavior = MINE_BEHAVIORS[self.config.mine_behavior](seed=self._seed)
         self.state = GameState.PENDING
 
     ##############################################################
@@ -86,6 +88,8 @@ class MinesweeperGame:
             if self.board.is_solved():
                 self.state = GameState.WON
 
+        self._run_mine_behavior("reveal", (r, c), hit_mine, newly_revealed)
+
         return self._action_result("reveal", (r, c), hit_mine, newly_revealed)
 
     def flag(self, r: int, c: int) -> dict:
@@ -100,6 +104,8 @@ class MinesweeperGame:
         changed = self.board.toggle_flag(r, c)
         if changed:
             self.player.record_flag()
+
+        self._run_mine_behavior("flag", (r, c), False, [])
 
         return self._action_result("flag", (r, c), False, [])
 
@@ -128,6 +134,36 @@ class MinesweeperGame:
 
     def get_player_metrics(self) -> dict:
         return self.player.metrics()
+
+    ##############################################################
+    # MINE BEHAVIOR HOOK
+    ##############################################################
+
+    def _run_mine_behavior(
+        self,
+        action: str,
+        coords: tuple[int, int],
+        hit_mine: bool,
+        newly_revealed: list[tuple[int, int]],
+    ) -> None:
+        """
+        Invoke the configured MineBehavior. Only runs while the game is ACTIVE
+        (mines exist and game is not over). Behavior may mutate the board, the
+        player, and append to newly_revealed; we re-check win/loss afterward.
+        """
+        if self.state != GameState.ACTIVE:
+            return
+        snapshot = {
+            "action":         action,
+            "coords":         coords,
+            "hit_mine":       hit_mine,
+            "newly_revealed": newly_revealed,
+        }
+        self._mine_behavior.on_post_action(self.board, self, snapshot)
+        if not self.player.is_alive():
+            self.state = GameState.LOST
+        elif self.board.is_solved():
+            self.state = GameState.WON
 
     ##############################################################
     # ACTION RESULT

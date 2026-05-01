@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import argparse
 import dataclasses
+import inspect
 import json
 import os
 import random
@@ -22,8 +23,13 @@ import time
 
 from openai import OpenAI
 
-from agents import evaluate_config
-from agents.random_agent import RandomAgent
+from agents import AGENTS, evaluate_config_multi
+
+
+# Default agent panel — resolved against AGENTS at run time so the panel
+# automatically degrades when optional agents (e.g. neural, which needs torch)
+# aren't installed.
+DEFAULT_AGENTS = ["random", "pafg", "neural"]
 
 
 def _load_dotenv(path: str = ".env") -> None:
@@ -42,6 +48,14 @@ def _load_dotenv(path: str = ".env") -> None:
 _load_dotenv()
 from config import GameConfig
 from mechanics_archive import MECHANICS
+from mine_behaviors import DriftingMines, ChainReactionMines
+from reveal_strategies import CascadeReveal, SingleReveal
+from code_mutations import (
+    KIND_SPEC,
+    CodeValidationError,
+    compile_and_register,
+    register_all_from_archive,
+)
 
 
 # ---------------------------------------------------------------------------
@@ -58,6 +72,7 @@ FIELD_CONSTRAINTS: dict[str, tuple | list] = {
     "reveal_strategy":  ["cascade", "single"],
     "flag_limit":       (0, None),       # None means unlimited; 0 means no flagging
     "safe_first_click": [True, False],
+    "mine_behavior":    ["static", "drifting", "chain-reaction"],
 }
 
 FIELD_DESCRIPTIONS: dict[str, str] = {
@@ -69,6 +84,7 @@ FIELD_DESCRIPTIONS: dict[str, str] = {
     "reveal_strategy":  '"cascade" (flood-fill) or "single" (one cell only)',
     "flag_limit":       "max flags allowed (null = unlimited, 0 = no flagging)",
     "safe_first_click": "true/false — guarantee first click is safe",
+    "mine_behavior":    '"static" (canonical), "drifting" (mines wander into adjacent unrevealed cells each turn; numbers update), or "chain-reaction" (hitting a mine cascades to all adjacent mines; pair with extra health)',
 }
 
 
@@ -149,17 +165,24 @@ def build_mutation_prompt(
         if e.get("description")
     ) or "  (empty — this is the first entry)"
 
-    win_pct   = f"{fitness['win_rate'] * 100:.1f}%"
-    prog_pct  = f"{fitness['avg_progress_fraction'] * 100:.1f}%"
+    per_agent = fitness["per_agent"]
+    n_games = next(iter(per_agent.values()))["n_games"]
+    agent_lines = "\n".join(
+        f"  {name:<7} win={f['win_rate']*100:5.1f}%  progress={f['avg_progress_fraction']*100:5.1f}%"
+        for name, f in per_agent.items()
+    )
+    spread_pct = f"{fitness['skill_spread'] * 100:+.1f}%"
 
-    return f"""You are mutating a Minesweeper GameConfig to discover novel, playable variants.
+    return f"""You are mutating a Minesweeper GameConfig to discover novel, playable variants where SKILL MATTERS.
+
+A skilled agent (PAFG constraint solver) should clearly outperform a random agent on these configs. Configs where everyone scores the same are boring — they reward luck, not strategy.
 
 Current config:
 {json.dumps(snapshot, indent=2)}
 
-Current fitness (RandomAgent, {fitness['n_games']} games):
-  win_rate:         {win_pct}
-  progress_fraction:{prog_pct}  (fraction of safe cells revealed on average)
+Current fitness ({n_games} games per agent):
+{agent_lines}
+  skill_spread (pafg − random progress): {spread_pct}
 
 Field reference:
 {field_ref}
@@ -168,30 +191,24 @@ Already in archive:
 {archive_summary}
 
 Propose ONE mutation that changes 1–3 fields to create an interesting gameplay variant.
-Aim for configs that are neither trivially easy nor trivially unwinnable.
+Aim for a LARGE skill spread: configs that are playable for the constraint solver but punishing for random play.
 Respond with JSON only — no explanation, no markdown:
 {{"changes": {{"field": value}}, "description": "one sentence describing the gameplay effect"}}"""
 
 
-def parse_mutation_response(
-    response_text: str,
+def _validate_changes(
+    changes: dict,
     base_config: GameConfig,
-) -> GameConfig | None:
+) -> dict | None:
     """
-    Parse the LLM's JSON response and return a validated GameConfig, or None on failure.
+    Validate a {field: value} mutation dict against FIELD_CONSTRAINTS.
+    Returns the validated dict, or None if any value is out of bounds /
+    of wrong type / for an unknown field. Shared by param mode (`changes`)
+    and code mode (`config_overrides`).
     """
-    # Strip markdown code fences if the model wraps the JSON
-    text = re.sub(r"```[a-z]*\n?", "", response_text).strip()
-    try:
-        data = json.loads(text)
-    except json.JSONDecodeError:
+    if not isinstance(changes, dict):
         return None
 
-    changes = data.get("changes")
-    if not isinstance(changes, dict) or not changes:
-        return None
-
-    # Validate each proposed change
     validated: dict = {}
     current = dataclasses.asdict(base_config)
     rows = changes.get("rows", current["rows"])
@@ -219,9 +236,35 @@ def parse_mutation_response(
 
         validated[field] = value
 
-    # Cross-field validation: mine_count must leave at least 9 safe cells
+    # Cross-field: mine_count must leave at least 9 safe cells
     new_mine_count = validated.get("mine_count", current["mine_count"])
     if new_mine_count >= rows * cols - 8:
+        return None
+
+    return validated
+
+
+def parse_mutation_response(
+    response_text: str,
+    base_config: GameConfig,
+) -> GameConfig | None:
+    """
+    Parse the param-mode LLM JSON response and return a validated GameConfig,
+    or None on failure.
+    """
+    # Strip markdown code fences if the model wraps the JSON
+    text = re.sub(r"```[a-z]*\n?", "", response_text).strip()
+    try:
+        data = json.loads(text)
+    except json.JSONDecodeError:
+        return None
+
+    changes = data.get("changes")
+    if not isinstance(changes, dict) or not changes:
+        return None
+
+    validated = _validate_changes(changes, base_config)
+    if validated is None:
         return None
 
     try:
@@ -231,42 +274,300 @@ def parse_mutation_response(
 
 
 # ---------------------------------------------------------------------------
+# Code-mutation prompt + response parsing
+# ---------------------------------------------------------------------------
+
+# Public API surface exposed to LLM-authored mechanics. The prompt embeds this
+# verbatim so the model knows what's available — keep it in sync with the
+# Board / Player public methods (board.py, player.py).
+_BOARD_PLAYER_CHEATSHEET = """\
+Board (passed to your method):
+  board.config              — GameConfig (rows, cols, mine_count, ...)
+  board.grid[r][c]          — Cell with .is_mine .is_revealed .is_flagged .adjacent_mines
+  board.neighbors(r, c)     — list of valid (r, c) Moore neighbors (8-connected)
+  board.in_bounds(r, c)     — bool
+  board.move_mine(src, dst) — bool; refuses dst that's revealed/flagged/already-mine
+  board.recompute_adjacency() — call ONCE after relocating any mines
+  board.reveal_mine(r, c)   — mark a mine cell as revealed
+
+Player (mine_behavior only):
+  game.player.take_damage()
+  game.player.is_alive() -> bool
+
+Cell mutation: directly assign to board.grid[r][c].is_mine / .is_revealed /
+.is_flagged / .adjacent_mines as needed."""
+
+
+_ACTION_DICT_SCHEMA = """\
+The `action` arg is a dict with:
+  "action":         "reveal" | "flag"
+  "coords":         (row, col) — what the player just clicked
+  "hit_mine":       bool — did the player hit a mine this turn
+  "newly_revealed": list[(row, col)] — MUTABLE; append cells you reveal\
+"""
+
+
+_CONSTRUCTOR_RULES = {
+    "mine_behavior": (
+        "If you override __init__, accept `seed: int | None = None` and call "
+        "`super().__init__(seed)` — that initializes self._rng. If you don't "
+        "need extra args, just don't override __init__."
+    ),
+    "reveal_strategy": (
+        "Your class must be default-constructible (no required constructor "
+        "args). Board instantiates strategies with no arguments."
+    ),
+}
+
+
+_KIND_EXEMPLARS: dict[str, list[type]] = {
+    "mine_behavior":   [DriftingMines, ChainReactionMines],
+    "reveal_strategy": [CascadeReveal, SingleReveal],
+}
+
+
+def _exemplar_block(kind: str) -> str:
+    parts = []
+    for cls in _KIND_EXEMPLARS[kind]:
+        try:
+            parts.append(inspect.getsource(cls))
+        except OSError:
+            parts.append(f"# (source for {cls.__name__} unavailable)")
+    return "\n\n".join(parts)
+
+
+def build_code_mutation_prompt(
+    base_config: GameConfig,
+    fitness: dict,
+    archive_entries: list[dict],
+    kind: str,
+) -> str:
+    """
+    Build the prompt for code-mode mutation. `kind` is "mine_behavior" or
+    "reveal_strategy".
+    """
+    abc_cls, _, _ = KIND_SPEC[kind]
+    snapshot = dataclasses.asdict(base_config)
+
+    archive_summary = "\n".join(
+        f"  - {e['description']}"
+        for e in archive_entries
+        if e.get("description")
+    ) or "  (empty)"
+
+    per_agent = fitness["per_agent"]
+    n_games = next(iter(per_agent.values()))["n_games"]
+    agent_lines = "\n".join(
+        f"  {name:<7} win={f['win_rate']*100:5.1f}%  progress={f['avg_progress_fraction']*100:5.1f}%"
+        for name, f in per_agent.items()
+    )
+    spread_pct = f"{fitness['skill_spread'] * 100:+.1f}%"
+
+    abc_source = inspect.getsource(abc_cls)
+
+    action_section = ""
+    if kind == "mine_behavior":
+        action_section = f"\n== Action dict schema ==\n\n{_ACTION_DICT_SCHEMA}\n"
+
+    return f"""You are mutating Minesweeper by writing a NEW {kind} subclass in Python.
+
+Goal: discover novel, playable variants where SKILL MATTERS — a constraint solver should clearly outperform random play. Configs where everyone scores the same are boring.
+
+Parent config:
+{json.dumps(snapshot, indent=2)}
+
+Parent fitness ({n_games} games per agent):
+{agent_lines}
+  skill_spread (pafg − random progress): {spread_pct}
+
+Already in archive (do not re-create these):
+{archive_summary}
+
+== Interface to implement ==
+
+{abc_source}
+{action_section}
+== Public API your class may use ==
+
+{_BOARD_PLAYER_CHEATSHEET}
+
+== Hard constraints ==
+
+- Define EXACTLY ONE subclass of {abc_cls.__name__}.
+- No `import` statements. The runtime exposes: random, deque, {abc_cls.__name__}.
+- {_CONSTRUCTOR_RULES[kind]}
+- Do not call game.reveal() or game.flag() — the framework re-checks state after your hook returns.
+- Do not perform I/O or read external state.
+- Class name should be CamelCase and descriptive of the mechanic.
+
+== Examples (existing implementations) ==
+
+{_exemplar_block(kind)}
+
+== Output ==
+
+Respond with JSON only — no markdown, no prose:
+{{
+  "kind": "{kind}",
+  "name": "DescriptiveName",
+  "code": "<full Python source for your class — newlines as \\n>",
+  "config_overrides": {{}},
+  "description": "one sentence about the gameplay effect"
+}}
+
+config_overrides may be empty {{}} or include any of: rows, cols, mine_count, starting_health, mine_damage, safe_first_click, flag_limit. Use it to pair your mechanic with parameters that make it survivable (e.g. extra health for chain-style behaviors)."""
+
+
+def parse_code_mutation_response(
+    response_text: str,
+    base_config: GameConfig,
+) -> tuple[str, str, str, GameConfig, str] | None:
+    """
+    Parse a code-mode response into (kind, key, source, new_config, description).
+
+    On success the generated class is registered in the appropriate registry
+    via compile_and_register. On failure returns None. Note: registered
+    classes are intentionally never unregistered — leaking a class costs one
+    dict entry, while removing one risks dropping a class another archive
+    entry depends on.
+    """
+    text = re.sub(r"```[a-z]*\n?", "", response_text).strip()
+    try:
+        data = json.loads(text)
+    except json.JSONDecodeError:
+        return None
+
+    kind = data.get("kind")
+    source = data.get("code")
+    description = data.get("description") or ""
+    if kind not in KIND_SPEC or not isinstance(source, str) or not source.strip():
+        return None
+
+    overrides = data.get("config_overrides") or {}
+    if not isinstance(overrides, dict):
+        return None
+    # The kind's own field is set from the generated key — drop it from overrides
+    # if the model accidentally included it.
+    overrides.pop("mine_behavior", None)
+    overrides.pop("reveal_strategy", None)
+
+    if overrides:
+        validated = _validate_changes(overrides, base_config)
+        if validated is None:
+            return None
+    else:
+        validated = {}
+
+    try:
+        key, _cls = compile_and_register(source, kind)
+    except CodeValidationError as e:
+        first_line = str(e).splitlines()[0] if str(e) else "unknown"
+        print(f"  Code validation failed: {first_line}")
+        return None
+
+    field = KIND_SPEC[kind][2]
+    try:
+        new_config = dataclasses.replace(base_config, **validated, **{field: key})
+    except (TypeError, ValueError):
+        return None
+
+    return kind, key, source, new_config, description
+
+
+# ---------------------------------------------------------------------------
 # Mutation loop
 # ---------------------------------------------------------------------------
+
+def _build_panel(agent_names: list[str]) -> dict[str, type]:
+    """Resolve agent names against the AGENTS registry. Skip names not present
+    (e.g. 'neural' when torch isn't installed) with a one-line warning."""
+    panel: dict[str, type] = {}
+    for name in agent_names:
+        if name in AGENTS:
+            panel[name] = AGENTS[name]
+        else:
+            print(f"  Warning: agent '{name}' unavailable — skipping.")
+    if not panel:
+        raise RuntimeError("Empty agent panel — at least one agent must be available.")
+    return panel
+
+
+def _multi_fitness(per_agent: dict[str, dict]) -> dict:
+    """Build the archive `fitness` dict from per-agent eval results."""
+    random_pf = per_agent.get("random", {}).get("avg_progress_fraction", 0.0)
+    pafg_pf = per_agent.get("pafg", {}).get("avg_progress_fraction", 0.0)
+    return {
+        "per_agent":    per_agent,
+        "skill_spread": pafg_pf - random_pf,
+        "n_games":      next(iter(per_agent.values()))["n_games"],
+    }
+
+
+def _format_per_agent(per_agent: dict[str, dict]) -> str:
+    return "  ".join(
+        f"{name}: win={f['win_rate']*100:.1f}% prog={f['avg_progress_fraction']*100:.1f}%"
+        for name, f in per_agent.items()
+    )
+
 
 def run_mortar_step(
     base_entry: dict,
     archive: dict,
-    n_games: int = 50,
+    panel: dict[str, type],
+    n_games: int = 20,
+    mode: str = "param",
+    code_kind: str | None = None,
 ) -> dict | None:
     """
-    Run one MORTAR iteration: mutate base_entry's config via LLM, evaluate, return result.
-    Returns None if the LLM fails to produce a valid config after retries, or the config
-    fails admission criteria.
+    Run one MORTAR iteration. `mode` is "param" or "code"; "code" requires
+    `code_kind` in {"mine_behavior", "reveal_strategy"}.
+
+    Returns a new archive entry on success, or None if the LLM fails to
+    produce a valid config after retries or the config fails admission.
     """
     snapshot = base_entry["config_snapshot"]
     base_config = GameConfig(**snapshot)
 
-    # Evaluate base config if not yet done (lazy init for seed entry)
+    # Lazy: evaluate the parent if it's never been measured.
     fitness = base_entry.get("fitness")
-    if fitness is None:
-        print("  Evaluating seed config...")
-        fitness = evaluate_config(RandomAgent, base_config, n_games=n_games)
+    if fitness is None or "per_agent" not in fitness:
+        print("  Evaluating base config across agent panel...")
+        per_agent = evaluate_config_multi(panel, base_config, n_games=n_games)
+        fitness = _multi_fitness(per_agent)
         base_entry["fitness"] = fitness
+        print(f"    {_format_per_agent(per_agent)}")
+
+    if mode == "code":
+        if code_kind not in KIND_SPEC:
+            print(f"  Invalid code_kind: {code_kind!r}")
+            return None
+        max_tokens = 2000
+        temperature = 0.9
+    else:
+        max_tokens = 256
+        temperature = 0.8
 
     client = _get_client()
     archive_entries = list(archive.values())
 
     new_config: GameConfig | None = None
     description: str = ""
+    code_meta: dict = {"code_kind": None, "code_source": None, "code_key": None}
 
     for attempt in range(3):
+        if mode == "code":
+            prompt = build_code_mutation_prompt(
+                base_config, fitness, archive_entries, code_kind
+            )
+        else:
+            prompt = build_mutation_prompt(base_config, fitness, archive_entries)
+
         try:
             response = client.chat.completions.create(
                 model="google/gemini-2.5-flash-lite",
-                messages=[{"role": "user", "content": build_mutation_prompt(base_config, fitness, archive_entries)}],
-                max_tokens=256,
-                temperature=0.8,
+                messages=[{"role": "user", "content": prompt}],
+                max_tokens=max_tokens,
+                temperature=temperature,
             )
             text = response.choices[0].message.content
         except Exception as e:
@@ -279,35 +580,54 @@ def run_mortar_step(
                 print(f"  LLM call failed (attempt {attempt + 1}): {e}")
             continue
 
-        # Extract description before parsing (in case parse fails)
-        try:
-            raw = re.sub(r"```[a-z]*\n?", "", text).strip()
-            description = json.loads(raw).get("description", "")
-        except Exception:
-            pass
+        if mode == "code":
+            parsed = parse_code_mutation_response(text, base_config)
+            if parsed is not None:
+                kind, key, source, new_config, description = parsed
+                code_meta = {
+                    "code_kind":   kind,
+                    "code_source": source,
+                    "code_key":    key,
+                }
+                break
+        else:
+            # Pull description before parse can fail (for diagnostics).
+            try:
+                raw = re.sub(r"```[a-z]*\n?", "", text).strip()
+                description = json.loads(raw).get("description", "")
+            except Exception:
+                pass
+            new_config = parse_mutation_response(text, base_config)
+            if new_config is not None:
+                break
 
-        new_config = parse_mutation_response(text, base_config)
-        if new_config is not None:
-            break
         print(f"  Parse failed (attempt {attempt + 1}), retrying...")
 
     if new_config is None:
         print("  Failed to produce a valid config after 3 attempts.")
         return None
 
-    # Evaluate the new config
-    new_fitness = evaluate_config(RandomAgent, new_config, n_games=n_games)
+    # Evaluate the new config with the full panel
+    per_agent = evaluate_config_multi(panel, new_config, n_games=n_games)
+    new_fitness = _multi_fitness(per_agent)
     new_snapshot = dataclasses.asdict(new_config)
 
-    # Admission criteria — use progress_fraction, not win_rate.
-    # RandomAgent wins ~1% of games so win_rate is near-zero and noisy over 50 runs.
-    # progress_fraction (cells_revealed / safe_cells) is stable and meaningful.
-    pf = new_fitness["avg_progress_fraction"]
-    if pf < 0.05:
-        print(f"  Rejected: progress_fraction too low ({pf:.3f}) — config is nearly unplayable")
+    print(f"  {_format_per_agent(per_agent)}")
+
+    # Admission criteria:
+    # 1. Playable by a skilled agent — PAFG progress in [0.05, 0.95]
+    # 2. Skill matters — pafg progress at least 0.10 above random
+    pafg_pf = per_agent.get("pafg", {}).get("avg_progress_fraction", 0.0)
+    spread = new_fitness["skill_spread"]
+
+    if pafg_pf < 0.05:
+        print(f"  Rejected: PAFG progress too low ({pafg_pf:.3f}) — config is nearly unplayable")
         return None
-    if pf > 0.98:
-        print(f"  Rejected: progress_fraction too high ({pf:.3f}) — config is trivially easy")
+    if pafg_pf > 0.95:
+        print(f"  Rejected: PAFG progress too high ({pafg_pf:.3f}) — config is trivially easy")
+        return None
+    if spread < 0.10:
+        print(f"  Rejected: skill spread too small ({spread:+.3f}) — skill doesn't matter here")
         return None
 
     generation = (base_entry.get("generation") or 0) + 1
@@ -317,24 +637,52 @@ def run_mortar_step(
         "fitness":          new_fitness,
         "parent_snapshot":  snapshot,
         "generation":       generation,
+        **code_meta,
     }
+
+
+def _resolve_iter_mode(mode: str) -> tuple[str, str | None]:
+    """
+    Map the user-facing mode (param/code/mixed) to a concrete iteration mode
+    and (for code mode) which surface to mutate.
+    """
+    if mode == "param":
+        return "param", None
+    if mode == "code":
+        return "code", random.choice(["mine_behavior", "reveal_strategy"])
+    if mode == "mixed":
+        if random.random() < 0.5:
+            return "code", random.choice(["mine_behavior", "reveal_strategy"])
+        return "param", None
+    raise ValueError(f"Unknown mode: {mode!r}")
 
 
 def run_mortar_loop(
     n_iterations: int = 10,
-    n_games_per_eval: int = 50,
+    n_games_per_eval: int = 20,
     archive_path: str = "archive.json",
     delay: float = 10.0,
+    agent_names: list[str] | None = None,
+    mode: str = "mixed",
 ) -> None:
     """
     Run the MORTAR evolution loop for n_iterations steps.
     Picks a random archive entry as parent each step.
     Saves the archive after each accepted config.
     delay: seconds to wait between iterations (respects free-tier rate limits).
+    mode: 'param' tunes GameConfig fields only; 'code' asks the LLM to write
+          new MineBehavior/RevealStrategy classes; 'mixed' alternates 50/50.
     """
+    panel = _build_panel(agent_names or DEFAULT_AGENTS)
+    print(f"Agent panel: {', '.join(panel)}")
+    print(f"Mutation mode: {mode}")
+
     _init_archive()
     load_archive(archive_path)
-    save_archive(archive_path)  # persist seed entry immediately
+    n_loaded = register_all_from_archive(ARCHIVE)
+    if n_loaded:
+        print(f"Reregistered {n_loaded} generated mechanic(s) from archive.")
+    save_archive(archive_path)  # persist seed entry + drop any unloadable code entries
 
     accepted = 0
     for i in range(n_iterations):
@@ -343,9 +691,17 @@ def run_mortar_loop(
 
         parent_entry = random.choice(list(ARCHIVE.values()))
         desc = parent_entry.get("description", "?")
-        print(f"\n[{i+1}/{n_iterations}] Mutating: {desc}")
 
-        result = run_mortar_step(parent_entry, ARCHIVE, n_games=n_games_per_eval)
+        iter_mode, code_kind = _resolve_iter_mode(mode)
+        kind_label = f"+{code_kind}" if iter_mode == "code" else ""
+        print(f"\n[{i+1}/{n_iterations}] Mutating ({iter_mode}{kind_label}): {desc}")
+
+        result = run_mortar_step(
+            parent_entry, ARCHIVE, panel=panel,
+            n_games=n_games_per_eval,
+            mode=iter_mode,
+            code_kind=code_kind,
+        )
         if result is None:
             print("  Skipped.")
             continue
@@ -358,8 +714,9 @@ def run_mortar_loop(
         ARCHIVE[key] = result
         accepted += 1
         f = result["fitness"]
+        suffix = f"  code:{result['code_key']}" if result.get("code_key") else ""
         print(f"  Accepted: {result['description']}")
-        print(f"  win={f['win_rate']*100:.1f}%  progress={f['avg_progress_fraction']*100:.1f}%  gen={result['generation']}")
+        print(f"  skill_spread={f['skill_spread']*100:+.1f}%  gen={result['generation']}{suffix}")
         save_archive(archive_path)
 
     print(f"\nDone. {accepted}/{n_iterations} configs accepted. Archive size: {len(ARCHIVE)}.")
@@ -373,9 +730,15 @@ def run_mortar_loop(
 if __name__ == "__main__":
     p = argparse.ArgumentParser(description="MORTAR — Minesweeper mechanic evolution")
     p.add_argument("--iterations", type=int,   default=10,            help="Number of mutation steps (default: 10)")
-    p.add_argument("--games",      type=int,   default=50,            help="Games per config evaluation (default: 50)")
+    p.add_argument("--games",      type=int,   default=10,            help="Games per agent per config (default: 20)")
     p.add_argument("--archive",    default="archive.json",            help="Archive file path (default: archive.json)")
     p.add_argument("--delay",      type=float, default=10.0,          help="Seconds between iterations for rate limiting (default: 10)")
+    p.add_argument("--agents",     nargs="+",  default=DEFAULT_AGENTS,
+                   help=f"Agents in evaluation panel (default: {' '.join(DEFAULT_AGENTS)})")
+    p.add_argument("--mode",       default="mixed", choices=["param", "code", "mixed"],
+                   help="Mutation mode: 'param' tunes GameConfig fields only, "
+                        "'code' generates new MineBehavior/RevealStrategy classes, "
+                        "'mixed' alternates (default: mixed)")
     args = p.parse_args()
 
     run_mortar_loop(
@@ -383,4 +746,6 @@ if __name__ == "__main__":
         n_games_per_eval=args.games,
         archive_path=args.archive,
         delay=args.delay,
+        agent_names=args.agents,
+        mode=args.mode,
     )
