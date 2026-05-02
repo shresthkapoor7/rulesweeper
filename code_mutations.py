@@ -32,12 +32,16 @@ from config import GameConfig
 from game import MinesweeperGame, GameState
 from mine_behaviors import MineBehavior, MINE_BEHAVIORS
 from reveal_strategies import RevealStrategy, REVEAL_STRATEGIES
+from info_strategies import InfoStrategy, INFO_STRATEGIES
+from neighborhoods import Neighborhood, NEIGHBORHOODS
 
 
 # Per-kind: (abc_class, registry_dict, GameConfig field name)
 KIND_SPEC: dict[str, tuple[type, dict, str]] = {
     "mine_behavior":   (MineBehavior,   MINE_BEHAVIORS,    "mine_behavior"),
     "reveal_strategy": (RevealStrategy, REVEAL_STRATEGIES, "reveal_strategy"),
+    "info_strategy":   (InfoStrategy,   INFO_STRATEGIES,   "info_strategy"),
+    "neighborhood":    (Neighborhood,   NEIGHBORHOODS,     "neighborhood"),
 }
 
 

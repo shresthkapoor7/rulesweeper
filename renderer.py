@@ -2,7 +2,6 @@ from __future__ import annotations
 import sys
 
 from game import MinesweeperGame, GameState
-from cell import Cell
 
 
 # ANSI color codes — only applied when stdout is a tty
@@ -54,7 +53,7 @@ class TerminalRenderer:
         for r in range(cfg.rows):
             row_str = f"{r:2} | "
             for c in range(cfg.cols):
-                row_str += self._cell_str(game.get_cell(r, c))
+                row_str += self._cell_str(game, r, c)
             print(row_str)
         print()
 
@@ -101,18 +100,28 @@ class TerminalRenderer:
     # INTERNALS
     ##############################################################
 
-    def _cell_str(self, cell: Cell) -> str:
+    def _cell_str(self, game: MinesweeperGame, r: int, c: int) -> str:
+        cell = game.get_cell(r, c)
         if not cell.is_revealed:
             if cell.is_flagged:
                 return self._color_str(_YELLOW, " F")
             return " ."
         if cell.is_mine:
             return self._color_str(_RED, " *")
-        if cell.adjacent_mines == 0:
+        # Display text comes from the InfoStrategy. Empty string renders as blank
+        # (preserves cascade-reveal aesthetic for canonical "0 adjacent mines").
+        text = game.info_at(r, c)
+        if not text:
             return "  "
-        n = cell.adjacent_mines
-        color = _NUM_COLORS.get(n, "")
-        return self._color_str(color, f" {n}")
+        # Per-digit color when the strategy returned a single digit "1"-"8";
+        # otherwise (parity, arrow, multi-char distance) use a neutral color.
+        try:
+            color = _NUM_COLORS.get(int(text), "")
+        except ValueError:
+            color = _CYAN
+        # Pad single-char text to 2 chars to keep the column grid aligned.
+        padded = f" {text}" if len(text) == 1 else text[:2]
+        return self._color_str(color, padded)
 
     def _color_str(self, color: str, text: str) -> str:
         if self._color and color:

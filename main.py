@@ -8,6 +8,8 @@ from game import MinesweeperGame, GameState
 from renderer import TerminalRenderer
 from reveal_strategies import REVEAL_STRATEGIES
 from mine_behaviors import MINE_BEHAVIORS
+from info_strategies import INFO_STRATEGIES
+from neighborhoods import NEIGHBORHOODS
 from mechanics_archive import MECHANICS
 from agents import AGENTS, run_game, evaluate_config
 
@@ -53,6 +55,10 @@ def parse_args() -> argparse.Namespace:
                    help=f"Reveal strategy (built-in: {', '.join(sorted(REVEAL_STRATEGIES))})")
     p.add_argument("--mine-behavior",   default=None, dest="mine_behavior",
                    help=f"Mine behavior (built-in: {', '.join(sorted(MINE_BEHAVIORS))})")
+    p.add_argument("--info-strategy",   default=None, dest="info_strategy",
+                   help=f"Info strategy (built-in: {', '.join(sorted(INFO_STRATEGIES))})")
+    p.add_argument("--neighborhood",    default=None, dest="neighborhood",
+                   help=f"Neighborhood (built-in: {', '.join(sorted(NEIGHBORHOODS))})")
     p.add_argument("--no-safe-click",   action="store_false", dest="safe_first_click")
 
     return p.parse_args()
@@ -63,7 +69,7 @@ def build_config(args: argparse.Namespace) -> GameConfig:
     base = MECHANICS[args.mechanic]() if args.mechanic else GameConfig()
     config_fields = {"rows", "cols", "mine_count", "starting_health",
                      "mine_damage", "flag_limit", "reveal_strategy",
-                     "mine_behavior"}
+                     "mine_behavior", "info_strategy", "neighborhood"}
     overrides = {k: v for k, v in vars(args).items()
                  if k in config_fields and v is not None}
     if args.safe_first_click is True and args.mechanic:
@@ -181,6 +187,12 @@ def main() -> None:
     if config.reveal_strategy not in REVEAL_STRATEGIES:
         valid = ", ".join(sorted(REVEAL_STRATEGIES))
         sys.exit(f"Invalid --reveal-strategy {config.reveal_strategy!r}. Valid: {valid}")
+    if config.info_strategy not in INFO_STRATEGIES:
+        valid = ", ".join(sorted(INFO_STRATEGIES))
+        sys.exit(f"Invalid --info-strategy {config.info_strategy!r}. Valid: {valid}")
+    if config.neighborhood not in NEIGHBORHOODS:
+        valid = ", ".join(sorted(NEIGHBORHOODS))
+        sys.exit(f"Invalid --neighborhood {config.neighborhood!r}. Valid: {valid}")
 
     if args.agent:
         run_agent_cli(args, config)

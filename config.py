@@ -31,3 +31,12 @@ class GameConfig:
     # Mine behavior controls how mines react between turns. See mine_behaviors.py for options.
     # MORTAR can swap this to explore mechanics like drifting or chain-reacting mines.
     mine_behavior: str = "static"
+
+    # Info strategy controls what symbol/text a revealed safe cell shows the player.
+    # See info_strategies.py for options. Default reproduces canonical mine-count display.
+    info_strategy: str = "count-mines"
+
+    # Neighborhood defines which cells are 'adjacent' for adjacency counts, cascades,
+    # safe-first-click zones, and any MineBehavior that walks neighbors.
+    # See neighborhoods.py for options. Default is the canonical 8-Moore neighborhood.
+    neighborhood: str = "moore"

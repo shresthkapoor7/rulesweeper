@@ -6,6 +6,7 @@ from board import Board
 from player import Player
 from cell import Cell
 from mine_behaviors import MINE_BEHAVIORS
+from info_strategies import INFO_STRATEGIES
 
 # Represents the current state of the game.
 # "Pending" is the state before the first reveal.
@@ -42,6 +43,7 @@ class MinesweeperGame:
         self.board = Board(self.config, seed=self._seed)
         self.player = Player(self.config)
         self._mine_behavior = MINE_BEHAVIORS[self.config.mine_behavior](seed=self._seed)
+        self._info_strategy = INFO_STRATEGIES[self.config.info_strategy](seed=self._seed)
         self.state = GameState.PENDING
 
     ##############################################################
@@ -125,6 +127,13 @@ class MinesweeperGame:
 
     def get_cell(self, r: int, c: int) -> Cell:
         return self.board.grid[r][c]
+
+    def info_at(self, r: int, c: int) -> str:
+        """
+        Display text for a revealed safe cell, per the configured InfoStrategy.
+        The renderer calls this instead of reading cell.adjacent_mines directly.
+        """
+        return self._info_strategy.encode(self.board, r, c)
 
     def get_state(self) -> GameState:
         return self.state

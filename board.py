@@ -4,6 +4,7 @@ import random
 from config import GameConfig
 from cell import Cell
 from reveal_strategies import REVEAL_STRATEGIES, RevealStrategy
+from neighborhoods import NEIGHBORHOODS, Neighborhood
 
 
 class Board:
@@ -21,6 +22,7 @@ class Board:
         ]
         self._flags_placed = 0
         self._strategy: RevealStrategy = REVEAL_STRATEGIES[config.reveal_strategy]()
+        self._neighborhood: Neighborhood = NEIGHBORHOODS[config.neighborhood]()
         # Isolated RNG — does not share state with the agent or any other component
         self._rng = random.Random(seed)
 
@@ -75,12 +77,11 @@ class Board:
         return 0 <= r < self.config.rows and 0 <= c < self.config.cols
 
     def neighbors(self, r: int, c: int) -> list[tuple[int, int]]:
-        """Return valid (r, c) pairs for all 8 Moore-neighborhood cells."""
+        """Return valid (r, c) pairs for the configured Neighborhood's offsets."""
         return [
             (r + dr, c + dc)
-            for dr in (-1, 0, 1)
-            for dc in (-1, 0, 1)
-            if (dr, dc) != (0, 0) and self.in_bounds(r + dr, c + dc)
+            for dr, dc in self._neighborhood.offsets()
+            if self.in_bounds(r + dr, c + dc)
         ]
 
     def is_solved(self) -> bool:
