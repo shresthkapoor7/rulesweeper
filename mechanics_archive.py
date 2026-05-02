@@ -34,6 +34,23 @@ def chain_reaction() -> GameConfig:
     )
 
 
+def parity_vision() -> GameConfig:
+    """Numbers show only even/odd of adjacent mine counts. Extra HP to compensate for harder deduction."""
+    return dataclasses.replace(
+        GameConfig(),
+        info_strategy="parity",
+        starting_health=2,
+    )
+
+
+def knight_moves() -> GameConfig:
+    """Adjacency follows chess-knight moves. Cascade jumps non-locally; surreal but solvable."""
+    return dataclasses.replace(
+        GameConfig(),
+        neighborhood="knight",
+    )
+
+
 # Archive of named mechanic presets.
 # MORTAR adds entries here when it produces an interesting evolved config.
 MECHANICS: dict[str, callable] = {
@@ -41,4 +58,6 @@ MECHANICS: dict[str, callable] = {
     "extra-life":     extra_life,
     "drifting-mines": drifting_mines,
     "chain-reaction": chain_reaction,
+    "parity-vision":  parity_vision,
+    "knight-moves":   knight_moves,
 }

@@ -23,9 +23,11 @@ Top-level files each have a single responsibility. Agents live in the `agents/` 
 | `board.py` | `Board` — owns the grid, mine placement (deferred to first click), adjacency computation, flagging, and delegates reveals to a `RevealStrategy` |
 | `reveal_strategies.py` | `RevealStrategy` ABC + concrete implementations (`CascadeReveal`, `SingleReveal`) + `REVEAL_STRATEGIES` registry |
 | `mine_behaviors.py` | `MineBehavior` ABC + concrete implementations (`StaticMines`, `DriftingMines`, `ChainReactionMines`) + `MINE_BEHAVIORS` registry |
+| `info_strategies.py` | `InfoStrategy` ABC + concrete implementations (`CountMinesInfo`, `CountFlagsInfo`, `ParityInfo`, `DistanceInfo`, `DirectionInfo`, `NoisyCountInfo`) + `INFO_STRATEGIES` registry — controls what symbol a revealed cell shows |
+| `neighborhoods.py` | `Neighborhood` ABC + concrete implementations (`MooreNeighborhood`, `VonNeumannNeighborhood`, `DiagonalNeighborhood`, `KnightNeighborhood`, `Radius2MooreNeighborhood`) + `NEIGHBORHOODS` registry — controls what counts as 'adjacent' |
 | `mechanics_archive.py` | Named `GameConfig` presets + `MECHANICS` registry — catalog of evolved mechanic variants; `standard` is the MORTAR seed |
 | `mortar.py` | MORTAR mutation engine — LLM-guided `GameConfig` evolution via OpenRouter, flat JSON archive, CLI entry point |
-| `code_mutations.py` | Compile / AST-validate / smoke-test / register LLM-authored `MineBehavior` and `RevealStrategy` subclasses (used by `mortar.py --mode code`) |
+| `code_mutations.py` | Compile / AST-validate / smoke-test / register LLM-authored `MineBehavior`, `RevealStrategy`, `InfoStrategy`, and `Neighborhood` subclasses (used by `mortar.py --mode code`) |
 | `player.py` | `Player` — tracks health, moves, and statistics; exposes `metrics()` as the MORTAR fitness signal |
 | `game.py` | `MinesweeperGame` + `GameState` enum — orchestrates `Board` and `Player`; primary interface for both human play and MORTAR agents |
 | `renderer.py` | `TerminalRenderer` — stateless display; all output lives here; ANSI color when stdout is a tty |
@@ -65,19 +67,21 @@ Every `GameConfig` field is a candidate gene. The table below maps each field to
 | `reveal_strategy` | `"cascade"` | Which `RevealStrategy` to use (`Board.__init__`) |
 | `flag_limit` | `None` | Max flags on board (`Board.toggle_flag`) |
 | `mine_behavior` | `"static"` | Which `MineBehavior` runs after each action (`MinesweeperGame._run_mine_behavior`) |
+| `info_strategy` | `"count-mines"` | Which `InfoStrategy` decides the symbol shown for a revealed safe cell (`MinesweeperGame.info_at` → `TerminalRenderer._cell_str`) |
+| `neighborhood` | `"moore"` | Which `Neighborhood` defines adjacency for cascade, adjacency counts, safe-first-click, and mine behaviors (`Board.neighbors`) |
 
 ### Code-mutation mode
 
 `mortar.py --mode code` (or 50% of `mixed` iterations) asks the LLM to author
-a brand-new `MineBehavior` or `RevealStrategy` subclass instead of tuning a
-`GameConfig` field. Pipeline (in `code_mutations.py`):
+a brand-new `MineBehavior`, `RevealStrategy`, `InfoStrategy`, or `Neighborhood`
+subclass instead of tuning a `GameConfig` field. Pipeline (in `code_mutations.py`):
 
 1. `ast.parse` — syntax check.
 2. AST denylist — no `import`, no `__class__/__bases__/__subclasses__/__globals__/__dict__/__import__/eval/exec/open/compile`.
 3. `exec` in curated globals (`random`, `deque`, the target ABC, restricted `__builtins__`).
 4. Locate exactly one subclass of the ABC.
 5. Smoke test — two short games on 8×8 with `RandomAgent`, 30-turn cap, 5s `SIGALRM` guard.
-6. Register under `gen-<sha1[:8]>` in `MINE_BEHAVIORS` / `REVEAL_STRATEGIES`. Idempotent.
+6. Register under `gen-<sha1[:8]>` in the corresponding registry (`MINE_BEHAVIORS`, `REVEAL_STRATEGIES`, `INFO_STRATEGIES`, `NEIGHBORHOODS`). Idempotent.
 7. Standard panel evaluation + admission criteria.
 
 Accepted entries persist with `code_kind`, `code_source`, `code_key` fields in
@@ -89,6 +93,14 @@ loads the archive too, so `python main.py --mine-behavior gen-abc12345` works.
 catches obvious foot-guns but is not a security boundary — `archive.json` with
 non-null `code_source` is executable code, not data. Run only against trusted
 models. Subprocess isolation is a follow-up.
+
+**Agent-fairness caveat for `info_strategy`.** `PAFGAgent` and `NeuralAgent`
+read `cell.adjacent_mines` directly — they don't go through `InfoStrategy`. So
+under e.g. `info_strategy="parity"`, those agents still "see" the true integer
+count and won't be challenged by the obfuscation. Fitness signals from MORTAR
+for `info_strategy` mutations therefore overstate solvability until the agents
+are refactored to consult `MinesweeperGame.info_at`. (Random agent is unaffected
+because it ignores numbers entirely.)
 
 ### Driving a game programmatically
 
@@ -137,6 +149,8 @@ Every call to `game.reveal()` and `game.flag()` returns a structured dict:
 | `extra-life` | Player starts with 2 HP; survives one mine hit before game over |
 | `drifting-mines` | Unflagged mines wander into adjacent unrevealed/unflagged cells each turn; adjacency numbers update in place. Flagging pins a mine in place |
 | `chain-reaction` | Hitting a mine cascades to every adjacent mine; player starts with 3 HP to make it survivable |
+| `parity-vision` | Numbers show only `E`/`O` (even/odd of adjacent mine count); player starts with 2 HP |
+| `knight-moves` | Adjacency follows chess-knight moves; cascade jumps non-locally |
 
 Use a preset from the CLI — additional flags compose on top:
 ```
@@ -226,8 +240,10 @@ python main.py [options]
   --flag-limit INT        Max flags allowed (default: unlimited)
   --reveal-strategy STR   cascade | single | gen-XXXXXXXX (default: cascade)
   --mine-behavior STR     static | drifting | chain-reaction | gen-XXXXXXXX (default: static)
+  --info-strategy STR     count-mines | count-flags | parity | distance | direction | noisy-count | gen-XXXXXXXX (default: count-mines)
+  --neighborhood STR      moore | von-neumann | diagonal | knight | radius-2-moore | gen-XXXXXXXX (default: moore)
   --no-safe-click         Disable safe first click guarantee
-  --mechanic NAME         Start from a named preset (standard, extra-life, drifting-mines, chain-reaction)
+  --mechanic NAME         Start from a named preset (standard, extra-life, drifting-mines, chain-reaction, parity-vision, knight-moves)
 ```
 
 In-game commands:

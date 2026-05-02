@@ -102,6 +102,7 @@ def run_game(
     config: GameConfig | None = None,
     renderer: TerminalRenderer | None = None,
     seed: int | None = None,
+    max_turns: int = 1000,
 ) -> dict:
     """
     Run a complete game with the given agent and config.
@@ -109,14 +110,20 @@ def run_game(
     - Omit renderer for headless/batch use (MORTAR fitness evaluation).
     - Pass a TerminalRenderer to watch the agent play interactively.
     - Pass seed to make both board mine placement and agent choices reproducible.
+    - max_turns caps a single game to prevent pathological mechanics (e.g. an
+      LLM-authored MineBehavior that spawns mines faster than they're cleared)
+      from hanging the eval loop. The cap is intentionally generous; legitimate
+      play on a 30x30 board with single-reveal stays well under it.
 
     Returns the final player_metrics dict augmented with 'state' and 'turns'.
+    If the game hits max_turns, 'state' will still be 'active' — callers can
+    detect this case via `result['turns'] >= max_turns and result['state'] == 'active'`.
     This dict is the primary result consumed by MORTAR's fitness evaluator.
     """
     game = MinesweeperGame(config, seed=seed)
     turns = 0
 
-    while game.get_state() in (GameState.PENDING, GameState.ACTIVE):
+    while game.get_state() in (GameState.PENDING, GameState.ACTIVE) and turns < max_turns:
         if renderer:
             renderer.render(game)
             renderer.render_status(game)

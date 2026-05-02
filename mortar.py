@@ -19,6 +19,7 @@ import json
 import os
 import random
 import re
+import signal
 import time
 
 from openai import OpenAI
@@ -50,6 +51,17 @@ from config import GameConfig
 from mechanics_archive import MECHANICS
 from mine_behaviors import DriftingMines, ChainReactionMines
 from reveal_strategies import CascadeReveal, SingleReveal
+from info_strategies import (
+    INFO_STRATEGIES,
+    CountFlagsInfo,
+    ParityInfo,
+    DistanceInfo,
+)
+from neighborhoods import (
+    NEIGHBORHOODS,
+    VonNeumannNeighborhood,
+    KnightNeighborhood,
+)
 from code_mutations import (
     KIND_SPEC,
     CodeValidationError,
@@ -73,6 +85,8 @@ FIELD_CONSTRAINTS: dict[str, tuple | list] = {
     "flag_limit":       (0, None),       # None means unlimited; 0 means no flagging
     "safe_first_click": [True, False],
     "mine_behavior":    ["static", "drifting", "chain-reaction"],
+    "info_strategy":    ["count-mines", "count-flags", "parity", "distance", "direction", "noisy-count"],
+    "neighborhood":     ["moore", "von-neumann", "diagonal", "knight", "radius-2-moore"],
 }
 
 FIELD_DESCRIPTIONS: dict[str, str] = {
@@ -85,6 +99,8 @@ FIELD_DESCRIPTIONS: dict[str, str] = {
     "flag_limit":       "max flags allowed (null = unlimited, 0 = no flagging)",
     "safe_first_click": "true/false — guarantee first click is safe",
     "mine_behavior":    '"static" (canonical), "drifting" (mines wander into adjacent unrevealed cells each turn; numbers update), or "chain-reaction" (hitting a mine cascades to all adjacent mines; pair with extra health)',
+    "info_strategy":    'symbol shown on a revealed safe cell — "count-mines" (canonical mine count), "count-flags" (count flagged neighbors instead), "parity" (only E/O of mine count), "distance" (Chebyshev distance to nearest mine on board), "direction" (arrow toward nearest mine), "noisy-count" (true count with random ±1 lies)',
+    "neighborhood":     'what counts as "adjacent" for adjacency counts, cascades, drift, and chain — "moore" (canonical 8-connected), "von-neumann" (4 orthogonal), "diagonal" (4 diagonal), "knight" (chess knight moves; cascade jumps non-locally), "radius-2-moore" (24 cells in 5×5 box)',
 }
 
 
@@ -130,6 +146,54 @@ def load_archive(path: str = "archive.json") -> None:
     for entry in entries:
         key = _config_key(entry["config_snapshot"])
         ARCHIVE[key] = entry
+
+
+# ---------------------------------------------------------------------------
+# Timeouts
+# ---------------------------------------------------------------------------
+
+# Per-LLM-call wall clock. Caps the OpenAI client's network wait so a stuck
+# upstream can't hang the whole loop. The retry block already handles raised
+# timeouts as one failed attempt.
+LLM_TIMEOUT_SECONDS = 60.0
+
+# Per-evaluate_config_multi wall clock. Caps each panel evaluation (parent or
+# new-config) via SIGALRM. Triggered when a code mutation produces a behavior
+# that infinite-loops or just makes games extremely slow. Generous enough that
+# legitimate slow evals (e.g. PAFG on a tough board) finish well under it.
+EVAL_TIMEOUT_SECONDS = 90
+
+
+class EvalTimeout(Exception):
+    """Raised when evaluate_config_multi exceeds EVAL_TIMEOUT_SECONDS."""
+
+
+def _evaluate_with_timeout(
+    panel: dict[str, type],
+    config: GameConfig,
+    n_games: int,
+    timeout: int = EVAL_TIMEOUT_SECONDS,
+) -> dict:
+    """
+    Wall-clock-bounded panel evaluation. Raises EvalTimeout on overflow.
+    POSIX-only: on platforms without SIGALRM the timeout is silently skipped
+    (matching the smoke-test pattern in code_mutations._run_one_smoke_game).
+    """
+    has_alarm = hasattr(signal, "SIGALRM")
+
+    def _on_alarm(signum, frame):
+        raise EvalTimeout(f"panel evaluation exceeded {timeout}s")
+
+    prev_handler = None
+    if has_alarm:
+        prev_handler = signal.signal(signal.SIGALRM, _on_alarm)
+        signal.alarm(timeout)
+    try:
+        return evaluate_config_multi(panel, config, n_games=n_games)
+    finally:
+        if has_alarm:
+            signal.alarm(0)
+            signal.signal(signal.SIGALRM, prev_handler)
 
 
 # ---------------------------------------------------------------------------
@@ -284,7 +348,7 @@ _BOARD_PLAYER_CHEATSHEET = """\
 Board (passed to your method):
   board.config              — GameConfig (rows, cols, mine_count, ...)
   board.grid[r][c]          — Cell with .is_mine .is_revealed .is_flagged .adjacent_mines
-  board.neighbors(r, c)     — list of valid (r, c) Moore neighbors (8-connected)
+  board.neighbors(r, c)     — list of valid (r, c) neighbors per the configured Neighborhood (default: 8-Moore; may be Von Neumann / knight / etc.)
   board.in_bounds(r, c)     — bool
   board.move_mine(src, dst) — bool; refuses dst that's revealed/flagged/already-mine
   board.recompute_adjacency() — call ONCE after relocating any mines
@@ -317,12 +381,26 @@ _CONSTRUCTOR_RULES = {
         "Your class must be default-constructible (no required constructor "
         "args). Board instantiates strategies with no arguments."
     ),
+    "info_strategy": (
+        "If you override __init__, accept `seed: int | None = None` and call "
+        "`super().__init__(seed)` — that stores self._seed. The Game "
+        "instantiates info strategies with the game seed; use it for any "
+        "per-cell deterministic noise (e.g. `random.Random(hash((self._seed, r, c)))`)."
+    ),
+    "neighborhood": (
+        "Your class must be default-constructible (no required constructor "
+        "args). Board instantiates neighborhoods with no arguments. The only "
+        "method to implement is `offsets() -> list[tuple[int, int]]` returning "
+        "(dr, dc) pairs that exclude (0, 0)."
+    ),
 }
 
 
 _KIND_EXEMPLARS: dict[str, list[type]] = {
     "mine_behavior":   [DriftingMines, ChainReactionMines],
     "reveal_strategy": [CascadeReveal, SingleReveal],
+    "info_strategy":   [CountFlagsInfo, ParityInfo, DistanceInfo],
+    "neighborhood":    [VonNeumannNeighborhood, KnightNeighborhood],
 }
 
 
@@ -343,8 +421,8 @@ def build_code_mutation_prompt(
     kind: str,
 ) -> str:
     """
-    Build the prompt for code-mode mutation. `kind` is "mine_behavior" or
-    "reveal_strategy".
+    Build the prompt for code-mode mutation. `kind` is one of
+    "mine_behavior", "reveal_strategy", "info_strategy", "neighborhood".
     """
     abc_cls, _, _ = KIND_SPEC[kind]
     snapshot = dataclasses.asdict(base_config)
@@ -532,7 +610,11 @@ def run_mortar_step(
     fitness = base_entry.get("fitness")
     if fitness is None or "per_agent" not in fitness:
         print("  Evaluating base config across agent panel...")
-        per_agent = evaluate_config_multi(panel, base_config, n_games=n_games)
+        try:
+            per_agent = _evaluate_with_timeout(panel, base_config, n_games=n_games)
+        except EvalTimeout as e:
+            print(f"  Skipped: parent eval timed out ({e})")
+            return None
         fitness = _multi_fitness(per_agent)
         base_entry["fitness"] = fitness
         print(f"    {_format_per_agent(per_agent)}")
@@ -568,6 +650,7 @@ def run_mortar_step(
                 messages=[{"role": "user", "content": prompt}],
                 max_tokens=max_tokens,
                 temperature=temperature,
+                timeout=LLM_TIMEOUT_SECONDS,
             )
             text = response.choices[0].message.content
         except Exception as e:
@@ -608,7 +691,11 @@ def run_mortar_step(
         return None
 
     # Evaluate the new config with the full panel
-    per_agent = evaluate_config_multi(panel, new_config, n_games=n_games)
+    try:
+        per_agent = _evaluate_with_timeout(panel, new_config, n_games=n_games)
+    except EvalTimeout as e:
+        print(f"  Rejected: new-config eval timed out ({e})")
+        return None
     new_fitness = _multi_fitness(per_agent)
     new_snapshot = dataclasses.asdict(new_config)
 
@@ -641,6 +728,9 @@ def run_mortar_step(
     }
 
 
+_CODE_KINDS = ["mine_behavior", "reveal_strategy", "info_strategy", "neighborhood"]
+
+
 def _resolve_iter_mode(mode: str) -> tuple[str, str | None]:
     """
     Map the user-facing mode (param/code/mixed) to a concrete iteration mode
@@ -649,10 +739,10 @@ def _resolve_iter_mode(mode: str) -> tuple[str, str | None]:
     if mode == "param":
         return "param", None
     if mode == "code":
-        return "code", random.choice(["mine_behavior", "reveal_strategy"])
+        return "code", random.choice(_CODE_KINDS)
     if mode == "mixed":
         if random.random() < 0.5:
-            return "code", random.choice(["mine_behavior", "reveal_strategy"])
+            return "code", random.choice(_CODE_KINDS)
         return "param", None
     raise ValueError(f"Unknown mode: {mode!r}")
 
