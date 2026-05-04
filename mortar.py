@@ -611,6 +611,7 @@ def run_mortar_step(
     n_games: int = 20,
     mode: str = "param",
     code_kind: str | None = None,
+    admit_all: bool = False,
 ) -> dict | None:
     """
     Run one MORTAR iteration. `mode` is "param" or "code"; "code" requires
@@ -706,6 +707,9 @@ def run_mortar_step(
         print("  Failed to produce a valid config after 3 attempts.")
         return None
 
+    if description:
+        print(f"  Testing: {description}")
+
     # Evaluate the new config with the full panel
     try:
         per_agent = _evaluate_with_timeout(panel, new_config, n_games=n_games)
@@ -724,14 +728,23 @@ def run_mortar_step(
     spread = new_fitness["skill_spread"]
 
     if pafg_pf < 0.05:
-        print(f"  Rejected: PAFG progress too low ({pafg_pf:.3f}) — config is nearly unplayable")
-        return None
+        msg = f"PAFG progress too low ({pafg_pf:.3f}) — config is nearly unplayable"
+        if not admit_all:
+            print(f"  Rejected: {msg}")
+            return None
+        print(f"  [admit-all] {msg}")
     if pafg_pf > 0.95:
-        print(f"  Rejected: PAFG progress too high ({pafg_pf:.3f}) — config is trivially easy")
-        return None
+        msg = f"PAFG progress too high ({pafg_pf:.3f}) — config is trivially easy"
+        if not admit_all:
+            print(f"  Rejected: {msg}")
+            return None
+        print(f"  [admit-all] {msg}")
     if spread < 0.10:
-        print(f"  Rejected: skill spread too small ({spread:+.3f}) — skill doesn't matter here")
-        return None
+        msg = f"skill spread too small ({spread:+.3f}) — skill doesn't matter here"
+        if not admit_all:
+            print(f"  Rejected: {msg}")
+            return None
+        print(f"  [admit-all] {msg}")
 
     generation = (base_entry.get("generation") or 0) + 1
     return {
@@ -770,6 +783,7 @@ def run_mortar_loop(
     delay: float = 10.0,
     agent_names: list[str] | None = None,
     mode: str = "mixed",
+    admit_all: bool = False,
 ) -> None:
     """
     Run the MORTAR evolution loop for n_iterations steps.
@@ -782,6 +796,8 @@ def run_mortar_loop(
     panel = _build_panel(agent_names or DEFAULT_AGENTS)
     print(f"Agent panel: {', '.join(panel)}")
     print(f"Mutation mode: {mode}")
+    if admit_all:
+        print("Admission gates: DISABLED (--admit-all) — every parseable mutation will be admitted.")
 
     _init_archive()
     load_archive(archive_path)
@@ -807,6 +823,7 @@ def run_mortar_loop(
             n_games=n_games_per_eval,
             mode=iter_mode,
             code_kind=code_kind,
+            admit_all=admit_all,
         )
         if result is None:
             print("  Skipped.")
@@ -845,6 +862,10 @@ if __name__ == "__main__":
                    help="Mutation mode: 'param' tunes GameConfig fields only, "
                         "'code' generates new MineBehavior/RevealStrategy classes, "
                         "'mixed' alternates (default: mixed)")
+    p.add_argument("--admit-all",  action="store_true",
+                   help="Skip all admission gates (PAFG progress bounds, skill spread); "
+                        "admit every parseable mutation. Use to explore the wild edge of "
+                        "the mechanic space.")
     args = p.parse_args()
 
     run_mortar_loop(
@@ -854,4 +875,5 @@ if __name__ == "__main__":
         delay=args.delay,
         agent_names=args.agents,
         mode=args.mode,
+        admit_all=args.admit_all,
     )

@@ -11,6 +11,26 @@
       "flag_limit": null,
       "mine_behavior": "static",
       "info_strategy": "count-mines",
+      "neighborhood": "moore",
+      "win_condition": "standard"
+    },
+    "description": "Canonical 16\u00d716 standard minesweeper",
+    "fitness": null,
+    "parent_snapshot": null,
+    "generation": 0
+  },
+  {
+    "config_snapshot": {
+      "rows": 16,
+      "cols": 16,
+      "mine_count": 40,
+      "starting_health": 1,
+      "mine_damage": 1,
+      "safe_first_click": true,
+      "reveal_strategy": "cascade",
+      "flag_limit": null,
+      "mine_behavior": "static",
+      "info_strategy": "count-mines",
       "neighborhood": "moore"
     },
     "description": "Canonical 16\u00d716 standard minesweeper",
