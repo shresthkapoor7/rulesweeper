@@ -25,9 +25,10 @@ Top-level files each have a single responsibility. Agents live in the `agents/` 
 | `mine_behaviors.py` | `MineBehavior` ABC + concrete implementations (`StaticMines`, `DriftingMines`, `ChainReactionMines`) + `MINE_BEHAVIORS` registry |
 | `info_strategies.py` | `InfoStrategy` ABC + concrete implementations (`CountMinesInfo`, `CountFlagsInfo`, `ParityInfo`, `DistanceInfo`, `DirectionInfo`, `NoisyCountInfo`) + `INFO_STRATEGIES` registry — controls what symbol a revealed cell shows |
 | `neighborhoods.py` | `Neighborhood` ABC + concrete implementations (`MooreNeighborhood`, `VonNeumannNeighborhood`, `DiagonalNeighborhood`, `KnightNeighborhood`, `Radius2MooreNeighborhood`) + `NEIGHBORHOODS` registry — controls what counts as 'adjacent' |
+| `win_conditions.py` | `WinCondition` ABC + concrete implementations (`StandardWin`, `RevealQuotaWin`, `FlagAllMinesWin`, `SurvivalWin`) + `WIN_CONDITIONS` registry — decides what counts as winning (and optionally losing) the game |
 | `mechanics_archive.py` | Named `GameConfig` presets + `MECHANICS` registry — catalog of evolved mechanic variants; `standard` is the MORTAR seed |
 | `mortar.py` | MORTAR mutation engine — LLM-guided `GameConfig` evolution via OpenRouter, flat JSON archive, CLI entry point |
-| `code_mutations.py` | Compile / AST-validate / smoke-test / register LLM-authored `MineBehavior`, `RevealStrategy`, `InfoStrategy`, and `Neighborhood` subclasses (used by `mortar.py --mode code`) |
+| `code_mutations.py` | Compile / AST-validate / smoke-test / register LLM-authored `MineBehavior`, `RevealStrategy`, `InfoStrategy`, `Neighborhood`, and `WinCondition` subclasses (used by `mortar.py --mode code`) |
 | `player.py` | `Player` — tracks health, moves, and statistics; exposes `metrics()` as the MORTAR fitness signal |
 | `game.py` | `MinesweeperGame` + `GameState` enum — orchestrates `Board` and `Player`; primary interface for both human play and MORTAR agents |
 | `renderer.py` | `TerminalRenderer` — stateless display; all output lives here; ANSI color when stdout is a tty |
@@ -69,19 +70,21 @@ Every `GameConfig` field is a candidate gene. The table below maps each field to
 | `mine_behavior` | `"static"` | Which `MineBehavior` runs after each action (`MinesweeperGame._run_mine_behavior`) |
 | `info_strategy` | `"count-mines"` | Which `InfoStrategy` decides the symbol shown for a revealed safe cell (`MinesweeperGame.info_at` → `TerminalRenderer._cell_str`) |
 | `neighborhood` | `"moore"` | Which `Neighborhood` defines adjacency for cascade, adjacency counts, safe-first-click, and mine behaviors (`Board.neighbors`) |
+| `win_condition` | `"standard"` | Which `WinCondition` is consulted after every action to decide WON / LOST / continue (`MinesweeperGame._check_endgame`) |
 
 ### Code-mutation mode
 
 `mortar.py --mode code` (or 50% of `mixed` iterations) asks the LLM to author
-a brand-new `MineBehavior`, `RevealStrategy`, `InfoStrategy`, or `Neighborhood`
-subclass instead of tuning a `GameConfig` field. Pipeline (in `code_mutations.py`):
+a brand-new `MineBehavior`, `RevealStrategy`, `InfoStrategy`, `Neighborhood`,
+or `WinCondition` subclass instead of tuning a `GameConfig` field. Pipeline
+(in `code_mutations.py`):
 
 1. `ast.parse` — syntax check.
 2. AST denylist — no `import`, no `__class__/__bases__/__subclasses__/__globals__/__dict__/__import__/eval/exec/open/compile`.
 3. `exec` in curated globals (`random`, `deque`, the target ABC, restricted `__builtins__`).
 4. Locate exactly one subclass of the ABC.
 5. Smoke test — two short games on 8×8 with `RandomAgent`, 30-turn cap, 5s `SIGALRM` guard.
-6. Register under `gen-<sha1[:8]>` in the corresponding registry (`MINE_BEHAVIORS`, `REVEAL_STRATEGIES`, `INFO_STRATEGIES`, `NEIGHBORHOODS`). Idempotent.
+6. Register under `gen-<sha1[:8]>` in the corresponding registry (`MINE_BEHAVIORS`, `REVEAL_STRATEGIES`, `INFO_STRATEGIES`, `NEIGHBORHOODS`, `WIN_CONDITIONS`). Idempotent.
 7. Standard panel evaluation + admission criteria.
 
 Accepted entries persist with `code_kind`, `code_source`, `code_key` fields in
@@ -101,6 +104,15 @@ count and won't be challenged by the obfuscation. Fitness signals from MORTAR
 for `info_strategy` mutations therefore overstate solvability until the agents
 are refactored to consult `MinesweeperGame.info_at`. (Random agent is unaffected
 because it ignores numbers entirely.)
+
+**Agent-fairness caveat for `win_condition`.** Agents do not adapt their
+strategy to non-standard objectives. `PAFGAgent` and `NeuralAgent` are tuned
+around "reveal every safe cell"; under `win_condition="flag-all-mines"` they
+still play to clear the board, so the win is largely incidental (`PAFG` does
+flag mines as part of its constraint loop, `NeuralAgent` does not). Under
+`"survival"` they keep clicking and may die before reaching the turn target.
+Fitness signals for `win_condition` mutations therefore lean on the random
+agent until the agents are refactored to consult the configured objective.
 
 ### Driving a game programmatically
 
@@ -151,6 +163,8 @@ Every call to `game.reveal()` and `game.flag()` returns a structured dict:
 | `chain-reaction` | Hitting a mine cascades to every adjacent mine; player starts with 3 HP to make it survivable |
 | `parity-vision` | Numbers show only `E`/`O` (even/odd of adjacent mine count); player starts with 2 HP |
 | `knight-moves` | Adjacency follows chess-knight moves; cascade jumps non-locally |
+| `flag-hunter` | Win by flagging every mine and only mines — pure-reveal play cannot win |
+| `quota-rush` | Win after revealing half the safe cells; mine count bumped to 60 to keep the partial-clear meaningful |
 
 Use a preset from the CLI — additional flags compose on top:
 ```
@@ -180,7 +194,7 @@ REVEAL_STRATEGIES["island"] = IslandReveal
 
 ### Adding a new mine behavior
 
-`MineBehavior` runs after every reveal/flag while the game is `ACTIVE`. It can mutate the board (move mines, recompute adjacency), reveal additional cells, and apply player damage. The game re-checks win/loss after the hook returns.
+`MineBehavior` runs after every reveal/flag while the game is `ACTIVE`. It can mutate the board (move mines, recompute adjacency), reveal additional cells, and apply player damage. The game re-runs the configured `WinCondition` (and the standard health-based loss check) after the hook returns.
 
 1. Subclass `MineBehavior` in `mine_behaviors.py`
 2. Implement `on_post_action(self, board, game, action) -> None`
@@ -242,8 +256,9 @@ python main.py [options]
   --mine-behavior STR     static | drifting | chain-reaction | gen-XXXXXXXX (default: static)
   --info-strategy STR     count-mines | count-flags | parity | distance | direction | noisy-count | gen-XXXXXXXX (default: count-mines)
   --neighborhood STR      moore | von-neumann | diagonal | knight | radius-2-moore | gen-XXXXXXXX (default: moore)
+  --win-condition STR     standard | reveal-quota | flag-all-mines | survival | gen-XXXXXXXX (default: standard)
   --no-safe-click         Disable safe first click guarantee
-  --mechanic NAME         Start from a named preset (standard, extra-life, drifting-mines, chain-reaction, parity-vision, knight-moves)
+  --mechanic NAME         Start from a named preset (standard, extra-life, drifting-mines, chain-reaction, parity-vision, knight-moves, flag-hunter, quota-rush)
 ```
 
 In-game commands:

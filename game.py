@@ -7,6 +7,7 @@ from player import Player
 from cell import Cell
 from mine_behaviors import MINE_BEHAVIORS
 from info_strategies import INFO_STRATEGIES
+from win_conditions import WIN_CONDITIONS
 
 # Represents the current state of the game.
 # "Pending" is the state before the first reveal.
@@ -44,6 +45,7 @@ class MinesweeperGame:
         self.player = Player(self.config)
         self._mine_behavior = MINE_BEHAVIORS[self.config.mine_behavior](seed=self._seed)
         self._info_strategy = INFO_STRATEGIES[self.config.info_strategy](seed=self._seed)
+        self._win_condition = WIN_CONDITIONS[self.config.win_condition](seed=self._seed)
         self.state = GameState.PENDING
 
     ##############################################################
@@ -82,14 +84,11 @@ class MinesweeperGame:
             self.board.reveal_mine(r, c)
             newly_revealed = [(r, c)]
             self.player.take_damage()
-            if not self.player.is_alive():
-                self.state = GameState.LOST
         else:
             newly_revealed = self.board.reveal(r, c)
             self.player.record_reveal(len(newly_revealed))
-            if self.board.is_solved():
-                self.state = GameState.WON
 
+        self._check_endgame("reveal", (r, c), hit_mine, newly_revealed)
         self._run_mine_behavior("reveal", (r, c), hit_mine, newly_revealed)
 
         return self._action_result("reveal", (r, c), hit_mine, newly_revealed)
@@ -107,6 +106,7 @@ class MinesweeperGame:
         if changed:
             self.player.record_flag()
 
+        self._check_endgame("flag", (r, c), False, [])
         self._run_mine_behavior("flag", (r, c), False, [])
 
         return self._action_result("flag", (r, c), False, [])
@@ -145,8 +145,37 @@ class MinesweeperGame:
         return self.player.metrics()
 
     ##############################################################
-    # MINE BEHAVIOR HOOK
+    # ENDGAME + MINE BEHAVIOR HOOKS
     ##############################################################
+
+    def _check_endgame(
+        self,
+        action: str,
+        coords: tuple[int, int],
+        hit_mine: bool,
+        newly_revealed: list[tuple[int, int]],
+    ) -> None:
+        """
+        Resolve game state after an action. Health-based loss is checked first
+        and is non-overridable; then the configured WinCondition can declare
+        WON or a custom LOST.
+        """
+        if self.state != GameState.ACTIVE:
+            return
+        if not self.player.is_alive():
+            self.state = GameState.LOST
+            return
+        snapshot = {
+            "action":         action,
+            "coords":         coords,
+            "hit_mine":       hit_mine,
+            "newly_revealed": newly_revealed,
+        }
+        result = self._win_condition.evaluate(self.board, self, snapshot)
+        if result == GameState.WON.value:
+            self.state = GameState.WON
+        elif result == GameState.LOST.value:
+            self.state = GameState.LOST
 
     def _run_mine_behavior(
         self,
@@ -158,7 +187,7 @@ class MinesweeperGame:
         """
         Invoke the configured MineBehavior. Only runs while the game is ACTIVE
         (mines exist and game is not over). Behavior may mutate the board, the
-        player, and append to newly_revealed; we re-check win/loss afterward.
+        player, and append to newly_revealed; we re-check endgame afterward.
         """
         if self.state != GameState.ACTIVE:
             return
@@ -169,10 +198,7 @@ class MinesweeperGame:
             "newly_revealed": newly_revealed,
         }
         self._mine_behavior.on_post_action(self.board, self, snapshot)
-        if not self.player.is_alive():
-            self.state = GameState.LOST
-        elif self.board.is_solved():
-            self.state = GameState.WON
+        self._check_endgame(action, coords, hit_mine, newly_revealed)
 
     ##############################################################
     # ACTION RESULT

@@ -34,6 +34,7 @@ from mine_behaviors import MineBehavior, MINE_BEHAVIORS
 from reveal_strategies import RevealStrategy, REVEAL_STRATEGIES
 from info_strategies import InfoStrategy, INFO_STRATEGIES
 from neighborhoods import Neighborhood, NEIGHBORHOODS
+from win_conditions import WinCondition, WIN_CONDITIONS
 
 
 # Per-kind: (abc_class, registry_dict, GameConfig field name)
@@ -42,6 +43,7 @@ KIND_SPEC: dict[str, tuple[type, dict, str]] = {
     "reveal_strategy": (RevealStrategy, REVEAL_STRATEGIES, "reveal_strategy"),
     "info_strategy":   (InfoStrategy,   INFO_STRATEGIES,   "info_strategy"),
     "neighborhood":    (Neighborhood,   NEIGHBORHOODS,     "neighborhood"),
+    "win_condition":   (WinCondition,   WIN_CONDITIONS,    "win_condition"),
 }
 
 

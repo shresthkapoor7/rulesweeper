@@ -62,6 +62,11 @@ from neighborhoods import (
     VonNeumannNeighborhood,
     KnightNeighborhood,
 )
+from win_conditions import (
+    WIN_CONDITIONS,
+    RevealQuotaWin,
+    FlagAllMinesWin,
+)
 from code_mutations import (
     KIND_SPEC,
     CodeValidationError,
@@ -87,6 +92,7 @@ FIELD_CONSTRAINTS: dict[str, tuple | list] = {
     "mine_behavior":    ["static", "drifting", "chain-reaction"],
     "info_strategy":    ["count-mines", "count-flags", "parity", "distance", "direction", "noisy-count"],
     "neighborhood":     ["moore", "von-neumann", "diagonal", "knight", "radius-2-moore"],
+    "win_condition":    ["standard", "reveal-quota", "flag-all-mines", "survival"],
 }
 
 FIELD_DESCRIPTIONS: dict[str, str] = {
@@ -101,6 +107,7 @@ FIELD_DESCRIPTIONS: dict[str, str] = {
     "mine_behavior":    '"static" (canonical), "drifting" (mines wander into adjacent unrevealed cells each turn; numbers update), or "chain-reaction" (hitting a mine cascades to all adjacent mines; pair with extra health)',
     "info_strategy":    'symbol shown on a revealed safe cell — "count-mines" (canonical mine count), "count-flags" (count flagged neighbors instead), "parity" (only E/O of mine count), "distance" (Chebyshev distance to nearest mine on board), "direction" (arrow toward nearest mine), "noisy-count" (true count with random ±1 lies)',
     "neighborhood":     'what counts as "adjacent" for adjacency counts, cascades, drift, and chain — "moore" (canonical 8-connected), "von-neumann" (4 orthogonal), "diagonal" (4 diagonal), "knight" (chess knight moves; cascade jumps non-locally), "radius-2-moore" (24 cells in 5×5 box)',
+    "win_condition":    'objective definition — "standard" (reveal every safe cell), "reveal-quota" (reveal half of safe cells; partial win), "flag-all-mines" (every mine flagged AND only mines flagged), "survival" (act 20 turns without dying)',
 }
 
 
@@ -393,6 +400,13 @@ _CONSTRUCTOR_RULES = {
         "method to implement is `offsets() -> list[tuple[int, int]]` returning "
         "(dr, dc) pairs that exclude (0, 0)."
     ),
+    "win_condition": (
+        "If you override __init__, accept `seed: int | None = None` and call "
+        "`super().__init__(seed)` — that initializes self._rng. The Game "
+        "instantiates win conditions with the game seed. evaluate() must "
+        "return the literal string \"won\", the literal string \"lost\", or "
+        "None to continue the game (do not return any other value)."
+    ),
 }
 
 
@@ -401,6 +415,7 @@ _KIND_EXEMPLARS: dict[str, list[type]] = {
     "reveal_strategy": [CascadeReveal, SingleReveal],
     "info_strategy":   [CountFlagsInfo, ParityInfo, DistanceInfo],
     "neighborhood":    [VonNeumannNeighborhood, KnightNeighborhood],
+    "win_condition":   [RevealQuotaWin, FlagAllMinesWin],
 }
 
 
@@ -528,6 +543,7 @@ def parse_code_mutation_response(
     # if the model accidentally included it.
     overrides.pop("mine_behavior", None)
     overrides.pop("reveal_strategy", None)
+    overrides.pop("win_condition", None)
 
     if overrides:
         validated = _validate_changes(overrides, base_config)
@@ -728,7 +744,7 @@ def run_mortar_step(
     }
 
 
-_CODE_KINDS = ["mine_behavior", "reveal_strategy", "info_strategy", "neighborhood"]
+_CODE_KINDS = ["mine_behavior", "reveal_strategy", "info_strategy", "neighborhood", "win_condition"]
 
 
 def _resolve_iter_mode(mode: str) -> tuple[str, str | None]:
