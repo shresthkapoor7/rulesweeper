@@ -51,6 +51,23 @@ def knight_moves() -> GameConfig:
     )
 
 
+def flag_hunter() -> GameConfig:
+    """Win by flagging every mine and only mines — pure-reveal play cannot win."""
+    return dataclasses.replace(
+        GameConfig(),
+        win_condition="flag-all-mines",
+    )
+
+
+def quota_rush() -> GameConfig:
+    """Win after revealing half the safe cells; mine count bumped to keep the partial-clear meaningful."""
+    return dataclasses.replace(
+        GameConfig(),
+        win_condition="reveal-quota",
+        mine_count=60,
+    )
+
+
 # Archive of named mechanic presets.
 # MORTAR adds entries here when it produces an interesting evolved config.
 MECHANICS: dict[str, callable] = {
@@ -60,4 +77,6 @@ MECHANICS: dict[str, callable] = {
     "chain-reaction": chain_reaction,
     "parity-vision":  parity_vision,
     "knight-moves":   knight_moves,
+    "flag-hunter":    flag_hunter,
+    "quota-rush":     quota_rush,
 }

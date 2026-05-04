@@ -40,3 +40,8 @@ class GameConfig:
     # safe-first-click zones, and any MineBehavior that walks neighbors.
     # See neighborhoods.py for options. Default is the canonical 8-Moore neighborhood.
     neighborhood: str = "moore"
+
+    # Win condition decides what counts as winning (and optionally losing) the game.
+    # See win_conditions.py for options. Default reproduces the canonical
+    # "reveal every safe cell" objective.
+    win_condition: str = "standard"

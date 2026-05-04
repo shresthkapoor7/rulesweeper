@@ -10,6 +10,7 @@ from reveal_strategies import REVEAL_STRATEGIES
 from mine_behaviors import MINE_BEHAVIORS
 from info_strategies import INFO_STRATEGIES
 from neighborhoods import NEIGHBORHOODS
+from win_conditions import WIN_CONDITIONS
 from mechanics_archive import MECHANICS
 from agents import AGENTS, run_game, evaluate_config
 
@@ -59,6 +60,8 @@ def parse_args() -> argparse.Namespace:
                    help=f"Info strategy (built-in: {', '.join(sorted(INFO_STRATEGIES))})")
     p.add_argument("--neighborhood",    default=None, dest="neighborhood",
                    help=f"Neighborhood (built-in: {', '.join(sorted(NEIGHBORHOODS))})")
+    p.add_argument("--win-condition",   default=None, dest="win_condition",
+                   help=f"Win condition (built-in: {', '.join(sorted(WIN_CONDITIONS))})")
     p.add_argument("--no-safe-click",   action="store_false", dest="safe_first_click")
 
     return p.parse_args()
@@ -69,7 +72,8 @@ def build_config(args: argparse.Namespace) -> GameConfig:
     base = MECHANICS[args.mechanic]() if args.mechanic else GameConfig()
     config_fields = {"rows", "cols", "mine_count", "starting_health",
                      "mine_damage", "flag_limit", "reveal_strategy",
-                     "mine_behavior", "info_strategy", "neighborhood"}
+                     "mine_behavior", "info_strategy", "neighborhood",
+                     "win_condition"}
     overrides = {k: v for k, v in vars(args).items()
                  if k in config_fields and v is not None}
     if args.safe_first_click is True and args.mechanic:
@@ -193,6 +197,9 @@ def main() -> None:
     if config.neighborhood not in NEIGHBORHOODS:
         valid = ", ".join(sorted(NEIGHBORHOODS))
         sys.exit(f"Invalid --neighborhood {config.neighborhood!r}. Valid: {valid}")
+    if config.win_condition not in WIN_CONDITIONS:
+        valid = ", ".join(sorted(WIN_CONDITIONS))
+        sys.exit(f"Invalid --win-condition {config.win_condition!r}. Valid: {valid}")
 
     if args.agent:
         run_agent_cli(args, config)
