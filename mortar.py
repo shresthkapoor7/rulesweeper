@@ -632,6 +632,9 @@ def run_mortar_step(
         except EvalTimeout as e:
             print(f"  Skipped: parent eval timed out ({e})")
             return None
+        except Exception as e:
+            print(f"  Skipped: parent eval crashed ({type(e).__name__}: {e})")
+            return None
         fitness = _multi_fitness(per_agent)
         base_entry["fitness"] = fitness
         print(f"    {_format_per_agent(per_agent)}")
@@ -715,6 +718,11 @@ def run_mortar_step(
         per_agent = _evaluate_with_timeout(panel, new_config, n_games=n_games)
     except EvalTimeout as e:
         print(f"  Rejected: new-config eval timed out ({e})")
+        return None
+    except Exception as e:
+        # Generated mechanic crashed at runtime — smoke test missed it.
+        # Reject the mutation and continue the loop.
+        print(f"  Rejected: new-config eval crashed ({type(e).__name__}: {e})")
         return None
     new_fitness = _multi_fitness(per_agent)
     new_snapshot = dataclasses.asdict(new_config)

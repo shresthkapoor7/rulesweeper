@@ -15,7 +15,36 @@
       "win_condition": "standard"
     },
     "description": "Canonical 16\u00d716 standard minesweeper",
-    "fitness": null,
+    "fitness": {
+      "per_agent": {
+        "random": {
+          "win_rate": 0.0,
+          "avg_cells_revealed": 79.34,
+          "avg_progress_fraction": 0.3673148148148148,
+          "avg_mines_hit": 1.0,
+          "avg_turns": 6.16,
+          "n_games": 50
+        },
+        "pafg": {
+          "win_rate": 0.66,
+          "avg_cells_revealed": 169.26,
+          "avg_progress_fraction": 0.783611111111111,
+          "avg_mines_hit": 0.34,
+          "avg_turns": 90.24,
+          "n_games": 50
+        },
+        "neural": {
+          "win_rate": 0.0,
+          "avg_cells_revealed": 97.6,
+          "avg_progress_fraction": 0.45185185185185184,
+          "avg_mines_hit": 1.0,
+          "avg_turns": 12.82,
+          "n_games": 50
+        }
+      },
+      "skill_spread": 0.4162962962962962,
+      "n_games": 50
+    },
     "parent_snapshot": null,
     "generation": 0
   },
@@ -318,5 +347,3249 @@
     "code_kind": "mine_behavior",
     "code_source": "class ConditionalDetonatingMines(MineBehavior):\n    \"\"\"\n    If the player reveals a number that is equal to the count of its\n    unrevealed and unflagged neighbors, all of those neighbors detonate.\n    This creates a strategic layer where players must identify 'perfect'\n    number cells to trigger safe reveals.\n    \"\"\"\n\n    def on_post_action(self, board, game, action):\n        if action['action'] == 'flag':\n            return\n\n        for r, c in action['newly_revealed']:\n            cell = board.grid[r][c]\n            if cell.is_mine or cell.adjacent_mines > 0:\n                # Only consider revealed safe cells with adjacent mine counts\n                continue\n\n            unrevealed_neighbors = []\n            for nr, nc in board.neighbors(r, c):\n                neighbor_cell = board.grid[nr][nc]\n                if not neighbor_cell.is_revealed and not neighbor_cell.is_flagged:\n                    unrevealed_neighbors.append((nr, nc))\n\n            if len(unrevealed_neighbors) == cell.adjacent_mines and cell.adjacent_mines > 0:\n                # This is a 'perfect' number cell situation\n                for nr, nc in unrevealed_neighbors:\n                    neighbor = board.grid[nr][nc]\n                    if neighbor.is_mine:\n                        board.reveal_mine(nr, nc)\n                        action['newly_revealed'].append((nr, nc))\n                        game.player.take_damage()\n                        if not game.player.is_alive():\n                            return\n",
     "code_key": "gen-78d725a6"
+  },
+  {
+    "config_snapshot": {
+      "rows": 16,
+      "cols": 16,
+      "mine_count": 40,
+      "starting_health": 2,
+      "mine_damage": 2,
+      "safe_first_click": true,
+      "reveal_strategy": "cascade",
+      "flag_limit": null,
+      "mine_behavior": "static",
+      "info_strategy": "distance",
+      "neighborhood": "moore",
+      "win_condition": "standard"
+    },
+    "description": "Revealed cells show distance to the nearest mine, and mines deal more damage, increasing the penalty for misidentification and rewarding spatial reasoning.",
+    "fitness": {
+      "per_agent": {
+        "random": {
+          "win_rate": 0.0,
+          "avg_cells_revealed": 78.48,
+          "avg_progress_fraction": 0.36333333333333334,
+          "avg_mines_hit": 1.0,
+          "avg_turns": 5.7,
+          "n_games": 50
+        },
+        "pafg": {
+          "win_rate": 0.78,
+          "avg_cells_revealed": 190.86,
+          "avg_progress_fraction": 0.8836111111111111,
+          "avg_mines_hit": 0.22,
+          "avg_turns": 104.68,
+          "n_games": 50
+        },
+        "neural": {
+          "win_rate": 0.0,
+          "avg_cells_revealed": 106.68,
+          "avg_progress_fraction": 0.49388888888888893,
+          "avg_mines_hit": 1.0,
+          "avg_turns": 16.54,
+          "n_games": 50
+        }
+      },
+      "skill_spread": 0.5202777777777778,
+      "n_games": 50
+    },
+    "parent_snapshot": {
+      "rows": 16,
+      "cols": 16,
+      "mine_count": 40,
+      "starting_health": 1,
+      "mine_damage": 1,
+      "safe_first_click": true,
+      "reveal_strategy": "cascade",
+      "flag_limit": null,
+      "mine_behavior": "static",
+      "info_strategy": "count-mines",
+      "neighborhood": "moore",
+      "win_condition": "standard"
+    },
+    "generation": 1,
+    "code_kind": null,
+    "code_source": null,
+    "code_key": null
+  },
+  {
+    "config_snapshot": {
+      "rows": 16,
+      "cols": 16,
+      "mine_count": 40,
+      "starting_health": 2,
+      "mine_damage": 1,
+      "safe_first_click": true,
+      "reveal_strategy": "gen-bda02263",
+      "flag_limit": null,
+      "mine_behavior": "static",
+      "info_strategy": "count-mines",
+      "neighborhood": "moore",
+      "win_condition": "standard"
+    },
+    "description": "Revealing a numbered cell cascades to reveal neighbors, detonating any that are mines.",
+    "fitness": {
+      "per_agent": {
+        "random": {
+          "win_rate": 0.0,
+          "avg_cells_revealed": 58.56,
+          "avg_progress_fraction": 0.27111111111111114,
+          "avg_mines_hit": 2.0,
+          "avg_turns": 13.28,
+          "n_games": 50
+        },
+        "pafg": {
+          "win_rate": 0.0,
+          "avg_cells_revealed": 86.7,
+          "avg_progress_fraction": 0.4013888888888889,
+          "avg_mines_hit": 2.0,
+          "avg_turns": 37.3,
+          "n_games": 50
+        },
+        "neural": {
+          "win_rate": 0.06,
+          "avg_cells_revealed": 100.9,
+          "avg_progress_fraction": 0.4671296296296297,
+          "avg_mines_hit": 1.94,
+          "avg_turns": 28.48,
+          "n_games": 50
+        }
+      },
+      "skill_spread": 0.13027777777777777,
+      "n_games": 50
+    },
+    "parent_snapshot": {
+      "rows": 16,
+      "cols": 16,
+      "mine_count": 40,
+      "starting_health": 1,
+      "mine_damage": 1,
+      "safe_first_click": true,
+      "reveal_strategy": "cascade",
+      "flag_limit": null,
+      "mine_behavior": "static",
+      "info_strategy": "count-mines",
+      "neighborhood": "moore",
+      "win_condition": "standard"
+    },
+    "generation": 1,
+    "code_kind": "reveal_strategy",
+    "code_source": "class ExplodingNeighborReveal(RevealStrategy):\n    \"\"\"\n    When a cell with adjacent mines is revealed, all its unrevealed neighbors are revealed.\n    If any of these newly revealed neighbors are mines, they detonate.\n    \"\"\"\n\n    def reveal(self, board: Board, r: int, c: int) -> list[tuple[int, int]]:\n        cell = board.grid[r][c]\n        if cell.is_revealed or cell.is_flagged:\n            return []\n\n        if cell.is_mine:\n            board.reveal_mine(r, c)\n            # Framework handles player damage for mine detonation\n            return [(r, c)]\n\n        cell.is_revealed = True\n        revealed_cells = [(r, c)]\n\n        if cell.adjacent_mines > 0:\n            for nr, nc in board.neighbors(r, c):\n                neighbor_cell = board.grid[nr][nc]\n                if not neighbor_cell.is_revealed and not neighbor_cell.is_flagged:\n                    if neighbor_cell.is_mine:\n                        board.reveal_mine(nr, nc)\n                        # Framework handles player damage for mine detonation\n                        revealed_cells.append((nr, nc))\n                    else:\n                        neighbor_cell.is_revealed = True\n                        revealed_cells.append((nr, nc))\n        return revealed_cells",
+    "code_key": "gen-bda02263"
+  },
+  {
+    "config_snapshot": {
+      "rows": 16,
+      "cols": 16,
+      "mine_count": 40,
+      "starting_health": 3,
+      "mine_damage": 2,
+      "safe_first_click": true,
+      "reveal_strategy": "cascade",
+      "flag_limit": null,
+      "mine_behavior": "static",
+      "info_strategy": "distance",
+      "neighborhood": "moore",
+      "win_condition": "standard"
+    },
+    "description": "Increased health and mine damage, combined with distance-to-mine information, rewards strategic movement and accurate mine identification.",
+    "fitness": {
+      "per_agent": {
+        "random": {
+          "win_rate": 0.0,
+          "avg_cells_revealed": 95.38,
+          "avg_progress_fraction": 0.44157407407407406,
+          "avg_mines_hit": 2.0,
+          "avg_turns": 10.26,
+          "n_games": 50
+        },
+        "pafg": {
+          "win_rate": 0.82,
+          "avg_cells_revealed": 211.46,
+          "avg_progress_fraction": 0.9789814814814816,
+          "avg_mines_hit": 0.3,
+          "avg_turns": 170.24,
+          "n_games": 50
+        },
+        "neural": {
+          "win_rate": 0.0,
+          "avg_cells_revealed": 114.76,
+          "avg_progress_fraction": 0.5312962962962963,
+          "avg_mines_hit": 2.0,
+          "avg_turns": 27.72,
+          "n_games": 50
+        }
+      },
+      "skill_spread": 0.5374074074074076,
+      "n_games": 50
+    },
+    "parent_snapshot": {
+      "rows": 16,
+      "cols": 16,
+      "mine_count": 40,
+      "starting_health": 1,
+      "mine_damage": 1,
+      "safe_first_click": true,
+      "reveal_strategy": "cascade",
+      "flag_limit": null,
+      "mine_behavior": "static",
+      "info_strategy": "count-mines",
+      "neighborhood": "moore"
+    },
+    "generation": 1,
+    "code_kind": null,
+    "code_source": null,
+    "code_key": null
+  },
+  {
+    "config_snapshot": {
+      "rows": 16,
+      "cols": 16,
+      "mine_count": 40,
+      "starting_health": 3,
+      "mine_damage": 2,
+      "safe_first_click": true,
+      "reveal_strategy": "gen-bda02263",
+      "flag_limit": null,
+      "mine_behavior": "static",
+      "info_strategy": "direction",
+      "neighborhood": "moore",
+      "win_condition": "standard"
+    },
+    "description": "Revealed cells show a direction to the nearest mine, higher health and damage penalize errors more, demanding precise deduction from directional cues.",
+    "fitness": {
+      "per_agent": {
+        "random": {
+          "win_rate": 0.0,
+          "avg_cells_revealed": 49.58,
+          "avg_progress_fraction": 0.22953703703703704,
+          "avg_mines_hit": 2.0,
+          "avg_turns": 11.9,
+          "n_games": 50
+        },
+        "pafg": {
+          "win_rate": 0.0,
+          "avg_cells_revealed": 88.4,
+          "avg_progress_fraction": 0.40925925925925927,
+          "avg_mines_hit": 1.94,
+          "avg_turns": 92.3,
+          "n_games": 50
+        },
+        "neural": {
+          "win_rate": 0.04,
+          "avg_cells_revealed": 99.76,
+          "avg_progress_fraction": 0.4618518518518519,
+          "avg_mines_hit": 1.94,
+          "avg_turns": 28.14,
+          "n_games": 50
+        }
+      },
+      "skill_spread": 0.17972222222222223,
+      "n_games": 50
+    },
+    "parent_snapshot": {
+      "rows": 16,
+      "cols": 16,
+      "mine_count": 40,
+      "starting_health": 2,
+      "mine_damage": 1,
+      "safe_first_click": true,
+      "reveal_strategy": "gen-bda02263",
+      "flag_limit": null,
+      "mine_behavior": "static",
+      "info_strategy": "count-mines",
+      "neighborhood": "moore",
+      "win_condition": "standard"
+    },
+    "generation": 2,
+    "code_kind": null,
+    "code_source": null,
+    "code_key": null
+  },
+  {
+    "config_snapshot": {
+      "rows": 16,
+      "cols": 16,
+      "mine_count": 40,
+      "starting_health": 1,
+      "mine_damage": 2,
+      "safe_first_click": true,
+      "reveal_strategy": "single",
+      "flag_limit": null,
+      "mine_behavior": "gen-a53059b3",
+      "info_strategy": "noisy-count",
+      "neighborhood": "moore",
+      "win_condition": "standard"
+    },
+    "description": "Single-cell reveals with noisy mine counts and no extra health make every click a calculated risk, heavily favoring agents that can infer mine locations despite unreliable information.",
+    "fitness": {
+      "per_agent": {
+        "random": {
+          "win_rate": 0.0,
+          "avg_cells_revealed": 6.0,
+          "avg_progress_fraction": 0.027777777777777776,
+          "avg_mines_hit": 1.0,
+          "avg_turns": 7.0,
+          "n_games": 50
+        },
+        "pafg": {
+          "win_rate": 0.0,
+          "avg_cells_revealed": 7.96,
+          "avg_progress_fraction": 0.03685185185185185,
+          "avg_mines_hit": 1.0,
+          "avg_turns": 9.1,
+          "n_games": 50
+        },
+        "neural": {
+          "win_rate": 0.0,
+          "avg_cells_revealed": 11.02,
+          "avg_progress_fraction": 0.05101851851851852,
+          "avg_mines_hit": 1.0,
+          "avg_turns": 12.02,
+          "n_games": 50
+        }
+      },
+      "skill_spread": 0.009074074074074075,
+      "n_games": 50
+    },
+    "parent_snapshot": {
+      "rows": 16,
+      "cols": 16,
+      "mine_count": 40,
+      "starting_health": 2,
+      "mine_damage": 2,
+      "safe_first_click": true,
+      "reveal_strategy": "cascade",
+      "flag_limit": null,
+      "mine_behavior": "gen-a53059b3",
+      "info_strategy": "count-mines",
+      "neighborhood": "moore"
+    },
+    "generation": 2,
+    "code_kind": null,
+    "code_source": null,
+    "code_key": null
+  },
+  {
+    "config_snapshot": {
+      "rows": 16,
+      "cols": 16,
+      "mine_count": 40,
+      "starting_health": 1,
+      "mine_damage": 3,
+      "safe_first_click": true,
+      "reveal_strategy": "single",
+      "flag_limit": null,
+      "mine_behavior": "static",
+      "info_strategy": "parity",
+      "neighborhood": "moore",
+      "win_condition": "standard"
+    },
+    "description": "Revealing only one cell at a time with parity-based mine counts and high mine damage forces precise deduction and punishes guesswork.",
+    "fitness": {
+      "per_agent": {
+        "random": {
+          "win_rate": 0.0,
+          "avg_cells_revealed": 4.5,
+          "avg_progress_fraction": 0.020833333333333332,
+          "avg_mines_hit": 1.0,
+          "avg_turns": 5.5,
+          "n_games": 10
+        },
+        "pafg": {
+          "win_rate": 0.0,
+          "avg_cells_revealed": 8.5,
+          "avg_progress_fraction": 0.03935185185185185,
+          "avg_mines_hit": 1.0,
+          "avg_turns": 9.5,
+          "n_games": 10
+        },
+        "neural": {
+          "win_rate": 0.0,
+          "avg_cells_revealed": 14.3,
+          "avg_progress_fraction": 0.06620370370370371,
+          "avg_mines_hit": 1.0,
+          "avg_turns": 15.3,
+          "n_games": 10
+        }
+      },
+      "skill_spread": 0.01851851851851852,
+      "n_games": 10
+    },
+    "parent_snapshot": {
+      "rows": 16,
+      "cols": 16,
+      "mine_count": 40,
+      "starting_health": 1,
+      "mine_damage": 1,
+      "safe_first_click": true,
+      "reveal_strategy": "cascade",
+      "flag_limit": null,
+      "mine_behavior": "static",
+      "info_strategy": "count-mines",
+      "neighborhood": "moore",
+      "win_condition": "standard"
+    },
+    "generation": 1,
+    "code_kind": null,
+    "code_source": null,
+    "code_key": null
+  },
+  {
+    "config_snapshot": {
+      "rows": 16,
+      "cols": 16,
+      "mine_count": 40,
+      "starting_health": 4,
+      "mine_damage": 2,
+      "safe_first_click": true,
+      "reveal_strategy": "cascade",
+      "flag_limit": null,
+      "mine_behavior": "static",
+      "info_strategy": "distance",
+      "neighborhood": "gen-3d9063b4",
+      "win_condition": "standard"
+    },
+    "description": "Uses only diagonal neighbors, making deductions more challenging due to sparser information while still retaining adjacency for cascade effects.",
+    "fitness": {
+      "per_agent": {
+        "random": {
+          "win_rate": 0.0,
+          "avg_cells_revealed": 128.5,
+          "avg_progress_fraction": 0.5949074074074074,
+          "avg_mines_hit": 2.0,
+          "avg_turns": 11.7,
+          "n_games": 10
+        },
+        "pafg": {
+          "win_rate": 0.0,
+          "avg_cells_revealed": 90.9,
+          "avg_progress_fraction": 0.42083333333333334,
+          "avg_mines_hit": 2.0,
+          "avg_turns": 13.7,
+          "n_games": 10
+        },
+        "neural": {
+          "win_rate": 0.0,
+          "avg_cells_revealed": 88.4,
+          "avg_progress_fraction": 0.40925925925925927,
+          "avg_mines_hit": 2.0,
+          "avg_turns": 8.0,
+          "n_games": 10
+        }
+      },
+      "skill_spread": -0.1740740740740741,
+      "n_games": 10
+    },
+    "parent_snapshot": {
+      "rows": 16,
+      "cols": 16,
+      "mine_count": 40,
+      "starting_health": 3,
+      "mine_damage": 2,
+      "safe_first_click": true,
+      "reveal_strategy": "cascade",
+      "flag_limit": null,
+      "mine_behavior": "static",
+      "info_strategy": "distance",
+      "neighborhood": "moore",
+      "win_condition": "standard"
+    },
+    "generation": 2,
+    "code_kind": "neighborhood",
+    "code_source": "class DiagonalMooreNeighborhood(Neighborhood):\n    \"\"\"Moore neighborhood with only diagonal neighbors. Information is sparser than Moore, but adjacency is preserved, creating interesting deduction puzzles.\"\"\"\n\n    _OFFSETS = [(-1, -1), (-1, 1), (1, -1), (1, 1)]\n\n    def offsets(self) -> list[tuple[int, int]]:\n        return self._OFFSETS",
+    "code_key": "gen-3d9063b4"
+  },
+  {
+    "config_snapshot": {
+      "rows": 16,
+      "cols": 16,
+      "mine_count": 40,
+      "starting_health": 2,
+      "mine_damage": 1,
+      "safe_first_click": true,
+      "reveal_strategy": "cascade",
+      "flag_limit": null,
+      "mine_behavior": "static",
+      "info_strategy": "gen-b1d711e3",
+      "neighborhood": "moore",
+      "win_condition": "standard"
+    },
+    "description": "Revealed cells show the count of their unrevealed neighbors that are mines, emphasizing immediate threats and local deduction.",
+    "fitness": {
+      "per_agent": {
+        "random": {
+          "win_rate": 0.0,
+          "avg_cells_revealed": 102.1,
+          "avg_progress_fraction": 0.47268518518518515,
+          "avg_mines_hit": 2.0,
+          "avg_turns": 10.3,
+          "n_games": 10
+        },
+        "pafg": {
+          "win_rate": 0.6,
+          "avg_cells_revealed": 164.3,
+          "avg_progress_fraction": 0.7606481481481482,
+          "avg_mines_hit": 0.8,
+          "avg_turns": 83.7,
+          "n_games": 10
+        },
+        "neural": {
+          "win_rate": 0.1,
+          "avg_cells_revealed": 138.3,
+          "avg_progress_fraction": 0.6402777777777778,
+          "avg_mines_hit": 1.9,
+          "avg_turns": 36.8,
+          "n_games": 10
+        }
+      },
+      "skill_spread": 0.28796296296296303,
+      "n_games": 10
+    },
+    "parent_snapshot": {
+      "rows": 16,
+      "cols": 16,
+      "mine_count": 40,
+      "starting_health": 1,
+      "mine_damage": 1,
+      "safe_first_click": true,
+      "reveal_strategy": "cascade",
+      "flag_limit": null,
+      "mine_behavior": "static",
+      "info_strategy": "count-mines",
+      "neighborhood": "moore",
+      "win_condition": "standard"
+    },
+    "generation": 1,
+    "code_kind": "info_strategy",
+    "code_source": "class NeighborProximityInfo(InfoStrategy):\n    \"\"\"\n    Revealed cells show the number of *unrevealed neighbors* that are mines.\n    This shifts focus from total adjacent mines to the immediate threat of\n    unconfirmed mines, making deduction more localized and tactical.\n    \"\"\"\n\n    def encode(self, board: \"Board\", r: int, c: int) -> str:\n        unrevealed_mine_neighbors = 0\n        for nr, nc in board.neighbors(r, c):\n            if board.in_bounds(nr, nc):\n                neighbor_cell = board.grid[nr][nc]\n                if not neighbor_cell.is_revealed and not neighbor_cell.is_flagged and neighbor_cell.is_mine:\n                    unrevealed_mine_neighbors += 1\n        \n        return str(unrevealed_mine_neighbors) if unrevealed_mine_neighbors > 0 else \"\"\n",
+    "code_key": "gen-b1d711e3"
+  },
+  {
+    "config_snapshot": {
+      "rows": 16,
+      "cols": 16,
+      "mine_count": 40,
+      "starting_health": 4,
+      "mine_damage": 1,
+      "safe_first_click": true,
+      "reveal_strategy": "gen-bda02263",
+      "flag_limit": null,
+      "mine_behavior": "gen-d4503419",
+      "info_strategy": "direction",
+      "neighborhood": "moore",
+      "win_condition": "standard"
+    },
+    "description": "Reveals constrained mines adjacent to newly revealed number cells, forcing proactive deduction.",
+    "fitness": {
+      "per_agent": {
+        "random": {
+          "win_rate": 0.0,
+          "avg_cells_revealed": 79.2,
+          "avg_progress_fraction": 0.3666666666666667,
+          "avg_mines_hit": 4.0,
+          "avg_turns": 18.8,
+          "n_games": 10
+        },
+        "pafg": {
+          "win_rate": 0.0,
+          "avg_cells_revealed": 109.7,
+          "avg_progress_fraction": 0.5078703703703704,
+          "avg_mines_hit": 4.0,
+          "avg_turns": 43.8,
+          "n_games": 10
+        },
+        "neural": {
+          "win_rate": 0.0,
+          "avg_cells_revealed": 135.5,
+          "avg_progress_fraction": 0.6273148148148148,
+          "avg_mines_hit": 4.0,
+          "avg_turns": 37.2,
+          "n_games": 10
+        }
+      },
+      "skill_spread": 0.14120370370370372,
+      "n_games": 10
+    },
+    "parent_snapshot": {
+      "rows": 16,
+      "cols": 16,
+      "mine_count": 40,
+      "starting_health": 3,
+      "mine_damage": 2,
+      "safe_first_click": true,
+      "reveal_strategy": "gen-bda02263",
+      "flag_limit": null,
+      "mine_behavior": "static",
+      "info_strategy": "direction",
+      "neighborhood": "moore",
+      "win_condition": "standard"
+    },
+    "generation": 3,
+    "code_kind": "mine_behavior",
+    "code_source": "class ProactiveMines(MineBehavior):\n    \"\"\"\n    When a numbered cell is revealed, any unrevealed neighboring mines that are\n    fully constrained (e.g., a '1' next to only one unrevealed cell) are immediately\n    revealed. This encourages more aggressive deduction by removing ambiguity\n    and revealing threats proactively.\n    \"\"\"\n\n    def on_post_action(self, board, game, action):\n        if action[\"action\"] == \"flag\":\n            return\n\n        newly_revealed_cells = action[\"newly_revealed\"]\n        newly_checked: set[tuple[int, int]] = set()\n\n        for r, c in newly_revealed_cells:\n            cell = board.grid[r][c]\n            if cell.is_mine or cell.adjacent_mines == 0 or (r, c) in newly_checked:\n                continue\n\n            # Check neighbors for fully constrained mines\n            for nr, nc in board.neighbors(r, c):\n                neighbor_cell = board.grid[nr][nc]\n                if neighbor_cell.is_mine and not neighbor_cell.is_revealed and not neighbor_cell.is_flagged:\n                    # Count unrevealed, unflagged neighbors of this potential mine\n                    constrained = True\n                    potential_mine_neighbors = []\n                    for nnr, nnc in board.neighbors(nr, nc):\n                        potential_mine_neighbors.append((nnr, nnc))\n\n                    # Check if the number of adj mines for (r,c) matches the number of unrevealed neighbors of (nr, nc)\n                    if cell.adjacent_mines > 0:\n                        unrevealed_neighbor_count = 0\n                        for p_nr, p_nc in potential_mine_neighbors:\n                            p_cell = board.grid[p_nr][p_nc]\n                            if not p_cell.is_revealed and not p_cell.is_flagged:\n                                unrevealed_neighbor_count += 1\n                        if cell.adjacent_mines == unrevealed_neighbor_count:\n                            # This neighbor IS a mine, reveal it\n                            board.reveal_mine(nr, nc)\n                            action[\"newly_revealed\"].append((nr, nc))\n                            newly_checked.add((nr, nc))\n                            # If revealing a mine, player takes damage\n                            game.player.take_damage()\n                            if not game.player.is_alive():\n                                return\n",
+    "code_key": "gen-d4503419"
+  },
+  {
+    "config_snapshot": {
+      "rows": 16,
+      "cols": 16,
+      "mine_count": 40,
+      "starting_health": 1,
+      "mine_damage": 2,
+      "safe_first_click": true,
+      "reveal_strategy": "single",
+      "flag_limit": null,
+      "mine_behavior": "gen-a53059b3",
+      "info_strategy": "direction",
+      "neighborhood": "moore",
+      "win_condition": "standard"
+    },
+    "description": "Requires precise deduction from directional cues with single-cell reveals and no health buffer, punishing random guesses severely.",
+    "fitness": {
+      "per_agent": {
+        "random": {
+          "win_rate": 0.0,
+          "avg_cells_revealed": 7.6,
+          "avg_progress_fraction": 0.03518518518518518,
+          "avg_mines_hit": 1.0,
+          "avg_turns": 8.6,
+          "n_games": 10
+        },
+        "pafg": {
+          "win_rate": 0.0,
+          "avg_cells_revealed": 6.2,
+          "avg_progress_fraction": 0.028703703703703703,
+          "avg_mines_hit": 1.0,
+          "avg_turns": 7.2,
+          "n_games": 10
+        },
+        "neural": {
+          "win_rate": 0.0,
+          "avg_cells_revealed": 3.4,
+          "avg_progress_fraction": 0.01574074074074074,
+          "avg_mines_hit": 1.0,
+          "avg_turns": 4.4,
+          "n_games": 10
+        }
+      },
+      "skill_spread": -0.006481481481481477,
+      "n_games": 10
+    },
+    "parent_snapshot": {
+      "rows": 16,
+      "cols": 16,
+      "mine_count": 40,
+      "starting_health": 1,
+      "mine_damage": 2,
+      "safe_first_click": true,
+      "reveal_strategy": "single",
+      "flag_limit": null,
+      "mine_behavior": "gen-a53059b3",
+      "info_strategy": "noisy-count",
+      "neighborhood": "moore",
+      "win_condition": "standard"
+    },
+    "generation": 3,
+    "code_kind": null,
+    "code_source": null,
+    "code_key": null
+  },
+  {
+    "config_snapshot": {
+      "rows": 16,
+      "cols": 16,
+      "mine_count": 40,
+      "starting_health": 1,
+      "mine_damage": 1,
+      "safe_first_click": true,
+      "reveal_strategy": "single",
+      "flag_limit": null,
+      "mine_behavior": "static",
+      "info_strategy": "noisy-count",
+      "neighborhood": "moore",
+      "win_condition": "standard"
+    },
+    "description": "Single-cell reveals with noisy mine counts and minimal health force precise deduction and heavily penalize random guesses.",
+    "fitness": {
+      "per_agent": {
+        "random": {
+          "win_rate": 0.0,
+          "avg_cells_revealed": 5.4,
+          "avg_progress_fraction": 0.025,
+          "avg_mines_hit": 1.0,
+          "avg_turns": 6.4,
+          "n_games": 10
+        },
+        "pafg": {
+          "win_rate": 0.0,
+          "avg_cells_revealed": 12.2,
+          "avg_progress_fraction": 0.05648148148148148,
+          "avg_mines_hit": 1.0,
+          "avg_turns": 14.4,
+          "n_games": 10
+        },
+        "neural": {
+          "win_rate": 0.0,
+          "avg_cells_revealed": 6.1,
+          "avg_progress_fraction": 0.02824074074074074,
+          "avg_mines_hit": 1.0,
+          "avg_turns": 7.1,
+          "n_games": 10
+        }
+      },
+      "skill_spread": 0.03148148148148148,
+      "n_games": 10
+    },
+    "parent_snapshot": {
+      "rows": 16,
+      "cols": 16,
+      "mine_count": 40,
+      "starting_health": 1,
+      "mine_damage": 1,
+      "safe_first_click": true,
+      "reveal_strategy": "cascade",
+      "flag_limit": null,
+      "mine_behavior": "static",
+      "info_strategy": "count-mines",
+      "neighborhood": "moore"
+    },
+    "generation": 1,
+    "code_kind": null,
+    "code_source": null,
+    "code_key": null
+  },
+  {
+    "config_snapshot": {
+      "rows": 16,
+      "cols": 16,
+      "mine_count": 40,
+      "starting_health": 3,
+      "mine_damage": 1,
+      "safe_first_click": true,
+      "reveal_strategy": "cascade",
+      "flag_limit": null,
+      "mine_behavior": "gen-05a01802",
+      "info_strategy": "count-mines",
+      "neighborhood": "moore",
+      "win_condition": "standard"
+    },
+    "description": "Automatically flags all unrevealed neighbors of a numbered cell when the count of those neighbors exactly matches the number, rewarding precise deduction.",
+    "fitness": {
+      "per_agent": {
+        "random": {
+          "win_rate": 0.0,
+          "avg_cells_revealed": 126.0,
+          "avg_progress_fraction": 0.5833333333333334,
+          "avg_mines_hit": 3.0,
+          "avg_turns": 17.2,
+          "n_games": 10
+        },
+        "pafg": {
+          "win_rate": 1.0,
+          "avg_cells_revealed": 216.0,
+          "avg_progress_fraction": 1.0,
+          "avg_mines_hit": 0.0,
+          "avg_turns": 93.7,
+          "n_games": 10
+        },
+        "neural": {
+          "win_rate": 0.0,
+          "avg_cells_revealed": 146.2,
+          "avg_progress_fraction": 0.6768518518518518,
+          "avg_mines_hit": 3.0,
+          "avg_turns": 37.3,
+          "n_games": 10
+        }
+      },
+      "skill_spread": 0.41666666666666663,
+      "n_games": 10
+    },
+    "parent_snapshot": {
+      "rows": 16,
+      "cols": 16,
+      "mine_count": 40,
+      "starting_health": 2,
+      "mine_damage": 2,
+      "safe_first_click": true,
+      "reveal_strategy": "cascade",
+      "flag_limit": null,
+      "mine_behavior": "gen-a53059b3",
+      "info_strategy": "count-mines",
+      "neighborhood": "moore"
+    },
+    "generation": 2,
+    "code_kind": "mine_behavior",
+    "code_source": "class DeducingMines(MineBehavior):\n    \"\"\"\n    When a numbered cell is revealed, if the number of that cell is equal\n    to the number of its unrevealed neighbors, then all of those unrevealed\n    neighbors must be mines. This behavior automatically flags them.\n    This creates opportunities for immediate, guaranteed deductions.\n    \"\"\"\n\n    def on_post_action(self, board, game, action):\n        if action[\"action\"] == \"flag\":\n            return\n\n        newly_revealed_coords = action[\"newly_revealed\"]\n        cells_to_check = set()\n\n        # Add cells that were just revealed to our check list\n        for r, c in newly_revealed_coords:\n            cells_to_check.add((r, c))\n\n        # Also add neighbors of newly revealed cells, as they might now become deducible\n        # (though the primary trigger is the newly revealed numbered cell itself)\n        for r, c in newly_revealed_coords:\n            for nr, nc in board.neighbors(r, c):\n                if board.in_bounds(nr, nc):\n                    cells_to_check.add((nr, nc))\n\n        flags_to_set = []\n\n        for r, c in cells_to_check:\n            if not board.in_bounds(r, c) or board.grid[r][c].is_revealed or board.grid[r][c].is_flagged:\n                continue\n            \n            cell = board.grid[r][c]\n            if cell.adjacent_mines == 0 or cell.adjacent_mines is None: # Skip '0' cells or cells without computed adjacency\n                continue\n\n            unrevealed_neighbors = []\n            for nr, nc in board.neighbors(r, c):\n                if board.in_bounds(nr, nc):\n                    neighbor_cell = board.grid[nr][nc]\n                    if not neighbor_cell.is_revealed and not neighbor_cell.is_flagged:\n                        unrevealed_neighbors.append((nr, nc))\n\n            if len(unrevealed_neighbors) == cell.adjacent_mines:\n                # All unrevealed neighbors must be mines, so flag them.\n                # We collect these to flag them all at once to avoid modifying the board\n                # while iterating over it, which could cause issues with neighbor calculations.\n                for nr, nc in unrevealed_neighbors:\n                    if not board.grid[nr][nc].is_flagged and board.grid[nr][nc].is_mine: # Double check it's a mine and not already flagged\n                        flags_to_set.append((nr, nc))\n        \n        # Now apply the flags\n        for r, c in flags_to_set:\n            if not board.grid[r][c].is_flagged:\n                board.grid[r][c].is_flagged = True\n                # We don't add to action[\"newly_revealed\"] because these are flags, not reveals\n                # The game's win/loss check will handle the implications of these flags.\n",
+    "code_key": "gen-05a01802"
+  },
+  {
+    "config_snapshot": {
+      "rows": 16,
+      "cols": 16,
+      "mine_count": 40,
+      "starting_health": 3,
+      "mine_damage": 1,
+      "safe_first_click": true,
+      "reveal_strategy": "gen-4919ebea",
+      "flag_limit": null,
+      "mine_behavior": "static",
+      "info_strategy": "count-mines",
+      "neighborhood": "moore",
+      "win_condition": "standard"
+    },
+    "description": "Reveals a numbered cell's unrevealed neighbors that are all mines, causing them to detonate and be revealed.",
+    "fitness": {
+      "per_agent": {
+        "random": {
+          "win_rate": 0.0,
+          "avg_cells_revealed": 57.2,
+          "avg_progress_fraction": 0.26481481481481484,
+          "avg_mines_hit": 3.0,
+          "avg_turns": 15.3,
+          "n_games": 10
+        },
+        "pafg": {
+          "win_rate": 0.0,
+          "avg_cells_revealed": 105.5,
+          "avg_progress_fraction": 0.48842592592592593,
+          "avg_mines_hit": 3.0,
+          "avg_turns": 61.1,
+          "n_games": 10
+        },
+        "neural": {
+          "win_rate": 0.0,
+          "avg_cells_revealed": 81.0,
+          "avg_progress_fraction": 0.375,
+          "avg_mines_hit": 3.0,
+          "avg_turns": 40.3,
+          "n_games": 10
+        }
+      },
+      "skill_spread": 0.2236111111111111,
+      "n_games": 10
+    },
+    "parent_snapshot": {
+      "rows": 16,
+      "cols": 16,
+      "mine_count": 40,
+      "starting_health": 2,
+      "mine_damage": 1,
+      "safe_first_click": true,
+      "reveal_strategy": "gen-bda02263",
+      "flag_limit": null,
+      "mine_behavior": "static",
+      "info_strategy": "count-mines",
+      "neighborhood": "moore",
+      "win_condition": "standard"
+    },
+    "generation": 2,
+    "code_kind": "reveal_strategy",
+    "code_source": "class ProactiveNeighborReveal(RevealStrategy):\n    \"\"\"\n    When a numbered cell is revealed, if all of its unrevealed neighbors are mines,\n    it detonates them and reveals them. This encourages proactive deduction.\n    \"\"\"\n\n    def reveal(self, board: Board, r: int, c: int) -> list[tuple[int, int]]:\n        cell = board.grid[r][c]\n        revealed_cells = []\n\n        if cell.is_mine:\n            # This should ideally not happen due to safe_first_click or game logic,\n            # but for robustness, we treat it as a normal reveal.\n            cell.is_revealed = True\n            revealed_cells.append((r, c))\n            return revealed_cells\n\n        cell.is_revealed = True\n        revealed_cells.append((r, c))\n\n        if cell.adjacent_mines > 0:\n            unrevealed_neighbors = []\n            for nr, nc in board.neighbors(r, c):\n                neighbor_cell = board.grid[nr][nc]\n                if not neighbor_cell.is_revealed and not neighbor_cell.is_flagged:\n                    unrevealed_neighbors.append((nr, nc))\n            \n            mine_neighbor_count = 0\n            for nr, nc in unrevealed_neighbors:\n                if board.grid[nr][nc].is_mine:\n                    mine_neighbor_count += 1\n\n            if mine_neighbor_count == cell.adjacent_mines:\n                # All unrevealed neighbors are mines, detonate them.\n                for nr, nc in unrevealed_neighbors:\n                    # Check if the neighbor is still unrevealed and not flagged, as it might have been revealed/flagged by another process.\n                    if not board.grid[nr][nc].is_revealed and not board.grid[nr][nc].is_flagged:\n                        if board.grid[nr][nc].is_mine:\n                            board.reveal_mine(nr, nc)\n                            revealed_cells.append((nr, nc))\n                        else:\n                            # This case should not happen if cell.adjacent_mines is accurate\n                            # but as a safety, we reveal it if it's not a mine.\n                            board.grid[nr][nc].is_revealed = True\n                            revealed_cells.append((nr, nc))\n        \n        # Standard cascade for '0' cells\n        if cell.adjacent_mines == 0 and not (r, c) in revealed_cells:  # Ensure we don't re-process if it was just detonated\n            queue = deque([(r, c)])\n            visited = {(r, c)}\n            \n            while queue:\n                cr, cc = queue.popleft()\n                curr = board.grid[cr][cc]\n                if curr.is_revealed or curr.is_flagged or curr.is_mine:\n                    continue\n                curr.is_revealed = True\n                if (cr, cc) not in revealed_cells: # Avoid adding duplicates if already detonated\n                    revealed_cells.append((cr, cc))\n\n                if curr.adjacent_mines == 0:\n                    for nr, nc in board.neighbors(cr, cc):\n                        if (nr, nc) not in visited:\n                            visited.add((nr, nc))\n                            queue.append((nr, nc))\n\n        return revealed_cells",
+    "code_key": "gen-4919ebea"
+  },
+  {
+    "config_snapshot": {
+      "rows": 16,
+      "cols": 16,
+      "mine_count": 40,
+      "starting_health": 3,
+      "mine_damage": 1,
+      "safe_first_click": true,
+      "reveal_strategy": "cascade",
+      "flag_limit": null,
+      "mine_behavior": "static",
+      "info_strategy": "distance",
+      "neighborhood": "moore",
+      "win_condition": "gen-c4ec4945"
+    },
+    "description": "Wins by revealing a numbered cell where all its unrevealed neighbors are indeed mines, rewarding precise deduction of mine clusters.",
+    "fitness": {
+      "per_agent": {
+        "random": {
+          "win_rate": 1.0,
+          "avg_cells_revealed": 38.7,
+          "avg_progress_fraction": 0.17916666666666667,
+          "avg_mines_hit": 0.0,
+          "avg_turns": 1.0,
+          "n_games": 10
+        },
+        "pafg": {
+          "win_rate": 1.0,
+          "avg_cells_revealed": 20.9,
+          "avg_progress_fraction": 0.09675925925925925,
+          "avg_mines_hit": 0.0,
+          "avg_turns": 1.0,
+          "n_games": 10
+        },
+        "neural": {
+          "win_rate": 1.0,
+          "avg_cells_revealed": 75.5,
+          "avg_progress_fraction": 0.34953703703703703,
+          "avg_mines_hit": 0.0,
+          "avg_turns": 1.0,
+          "n_games": 10
+        }
+      },
+      "skill_spread": -0.08240740740740742,
+      "n_games": 10
+    },
+    "parent_snapshot": {
+      "rows": 16,
+      "cols": 16,
+      "mine_count": 40,
+      "starting_health": 2,
+      "mine_damage": 2,
+      "safe_first_click": true,
+      "reveal_strategy": "cascade",
+      "flag_limit": null,
+      "mine_behavior": "static",
+      "info_strategy": "distance",
+      "neighborhood": "moore",
+      "win_condition": "standard"
+    },
+    "generation": 2,
+    "code_kind": "win_condition",
+    "code_source": "class ConditionalCascadeWin(WinCondition):\n    \"\"\"\n    Wins when a cell with N adjacent mines is revealed, and exactly N\n    of its unrevealed neighbors are mines. This encourages agents to not only\n    reveal safe cells but also to precisely identify mine clusters.\n    \"\"\"\n\n    def evaluate(self, board, game, action):\n        newly_revealed = action.get('newly_revealed', [])\n        if not newly_revealed:\n            return None\n\n        for r, c in newly_revealed:\n            cell = board.grid[r][c]\n            if not cell.is_revealed or cell.is_mine:\n                continue\n\n            adjacent_mines = cell.adjacent_mines\n            if adjacent_mines == 0:\n                continue\n\n            unrevealed_neighbors_count = 0\n            mine_neighbors_count = 0\n\n            for nr, nc in board.neighbors(r, c):\n                neighbor_cell = board.grid[nr][nc]\n                if not neighbor_cell.is_revealed:\n                    unrevealed_neighbors_count += 1\n                    if neighbor_cell.is_mine:\n                        mine_neighbors_count += 1\n\n            if unrevealed_neighbors_count > 0 and mine_neighbors_count == adjacent_mines:\n                return \"won\"\n\n        return None\n",
+    "code_key": "gen-c4ec4945"
+  },
+  {
+    "config_snapshot": {
+      "rows": 16,
+      "cols": 16,
+      "mine_count": 40,
+      "starting_health": 3,
+      "mine_damage": 3,
+      "safe_first_click": true,
+      "reveal_strategy": "cascade",
+      "flag_limit": null,
+      "mine_behavior": "static",
+      "info_strategy": "distance",
+      "neighborhood": "moore",
+      "win_condition": "gen-345f3d4b"
+    },
+    "description": "Wins by revealing a numbered cell where all its unrevealed neighbors are mines, causing them to detonate and be revealed, requiring precise deduction of mine clusters.",
+    "fitness": {
+      "per_agent": {
+        "random": {
+          "win_rate": 0.0,
+          "avg_cells_revealed": 70.3,
+          "avg_progress_fraction": 0.32546296296296295,
+          "avg_mines_hit": 1.0,
+          "avg_turns": 4.4,
+          "n_games": 10
+        },
+        "pafg": {
+          "win_rate": 0.0,
+          "avg_cells_revealed": 212.9,
+          "avg_progress_fraction": 0.9856481481481482,
+          "avg_mines_hit": 0.2,
+          "avg_turns": 822.1,
+          "n_games": 10
+        },
+        "neural": {
+          "win_rate": 0.0,
+          "avg_cells_revealed": 92.0,
+          "avg_progress_fraction": 0.42592592592592593,
+          "avg_mines_hit": 1.0,
+          "avg_turns": 17.1,
+          "n_games": 10
+        }
+      },
+      "skill_spread": 0.6601851851851852,
+      "n_games": 10
+    },
+    "parent_snapshot": {
+      "rows": 16,
+      "cols": 16,
+      "mine_count": 40,
+      "starting_health": 2,
+      "mine_damage": 2,
+      "safe_first_click": true,
+      "reveal_strategy": "cascade",
+      "flag_limit": null,
+      "mine_behavior": "static",
+      "info_strategy": "distance",
+      "neighborhood": "moore",
+      "win_condition": "standard"
+    },
+    "generation": 2,
+    "code_kind": "win_condition",
+    "code_source": "class NeighborMineCascadeWin(WinCondition):\n    \"\"\"\n    Wins when revealing a numbered cell causes all its unrevealed neighbors\n    to detonate (if they are mines), and all those detonated mines are subsequently revealed.\n    This rewards precise deduction of mine clusters.\n    \"\"\"\n\n    def evaluate(self, board, game, action):\n        if action is None or 'newly_revealed' not in action:\n            return None\n\n        last_revealed_coords = action['coords']\n        if board.grid[last_revealed_coords[0]][last_revealed_coords[1]].adjacent_mines != 0:\n            return None\n\n        # Check if all unrevealed neighbors of the last revealed cell are mines\n        all_neighbors_are_mines = True\n        unrevealed_neighbors = []\n        for r, c in board.neighbors(*last_revealed_coords):\n            cell = board.grid[r][c]\n            if not cell.is_revealed:\n                unrevealed_neighbors.append((r, c))\n                if not cell.is_mine:\n                    all_neighbors_are_mines = False\n                    break\n\n        if not all_neighbors_are_mines or not unrevealed_neighbors:\n            return None\n        \n        # All unrevealed neighbors are mines. Now, check if they are revealed.\n        # The game's mine_behavior will reveal them if they are indeed mines\n        # and the cell that revealed them had a 0 adjacent_mines count and this condition\n        # is met in the next evaluation.\n        \n        # This win condition is met if the game *would have* revealed all these mines.\n        # So, we need to check if the *current* state implies they are all revealed.\n        \n        # The cascade effect of the 0 means mines *would* be revealed. \n        # We need to confirm if all these neighbors *are* revealed now.\n\n        all_neighbors_revealed_as_mines = True\n        for r, c in unrevealed_neighbors:\n            if not board.grid[r][c].is_revealed:\n                all_neighbors_revealed_as_mines = False\n                break\n        \n        if all_neighbors_revealed_as_mines:\n            return \"won\"\n\n        return None",
+    "code_key": "gen-345f3d4b"
+  },
+  {
+    "config_snapshot": {
+      "rows": 16,
+      "cols": 16,
+      "mine_count": 40,
+      "starting_health": 2,
+      "mine_damage": 4,
+      "safe_first_click": true,
+      "reveal_strategy": "single",
+      "flag_limit": null,
+      "mine_behavior": "static",
+      "info_strategy": "noisy-count",
+      "neighborhood": "moore",
+      "win_condition": "standard"
+    },
+    "description": "Increased mine damage and noisy mine counts with limited health force extreme caution and reward agents that can effectively filter misinformation.",
+    "fitness": {
+      "per_agent": {
+        "random": {
+          "win_rate": 0.0,
+          "avg_cells_revealed": 7.2,
+          "avg_progress_fraction": 0.03333333333333333,
+          "avg_mines_hit": 1.0,
+          "avg_turns": 8.2,
+          "n_games": 10
+        },
+        "pafg": {
+          "win_rate": 0.0,
+          "avg_cells_revealed": 7.6,
+          "avg_progress_fraction": 0.03518518518518518,
+          "avg_mines_hit": 1.0,
+          "avg_turns": 8.6,
+          "n_games": 10
+        },
+        "neural": {
+          "win_rate": 0.0,
+          "avg_cells_revealed": 20.3,
+          "avg_progress_fraction": 0.09398148148148149,
+          "avg_mines_hit": 1.0,
+          "avg_turns": 21.3,
+          "n_games": 10
+        }
+      },
+      "skill_spread": 0.0018518518518518476,
+      "n_games": 10
+    },
+    "parent_snapshot": {
+      "rows": 16,
+      "cols": 16,
+      "mine_count": 40,
+      "starting_health": 1,
+      "mine_damage": 3,
+      "safe_first_click": true,
+      "reveal_strategy": "single",
+      "flag_limit": null,
+      "mine_behavior": "static",
+      "info_strategy": "parity",
+      "neighborhood": "moore",
+      "win_condition": "standard"
+    },
+    "generation": 2,
+    "code_kind": null,
+    "code_source": null,
+    "code_key": null
+  },
+  {
+    "config_snapshot": {
+      "rows": 16,
+      "cols": 16,
+      "mine_count": 40,
+      "starting_health": 1,
+      "mine_damage": 3,
+      "safe_first_click": true,
+      "reveal_strategy": "gen-bda02263",
+      "flag_limit": null,
+      "mine_behavior": "static",
+      "info_strategy": "parity",
+      "neighborhood": "moore",
+      "win_condition": "standard"
+    },
+    "description": "Uses parity for mine counts, has no health buffer, and mines deal significant damage, forcing highly precise deductions.",
+    "fitness": {
+      "per_agent": {
+        "random": {
+          "win_rate": 0.0,
+          "avg_cells_revealed": 24.5,
+          "avg_progress_fraction": 0.11342592592592593,
+          "avg_mines_hit": 1.0,
+          "avg_turns": 5.9,
+          "n_games": 10
+        },
+        "pafg": {
+          "win_rate": 0.0,
+          "avg_cells_revealed": 42.4,
+          "avg_progress_fraction": 0.1962962962962963,
+          "avg_mines_hit": 1.0,
+          "avg_turns": 18.8,
+          "n_games": 10
+        },
+        "neural": {
+          "win_rate": 0.0,
+          "avg_cells_revealed": 38.2,
+          "avg_progress_fraction": 0.17685185185185187,
+          "avg_mines_hit": 1.0,
+          "avg_turns": 11.3,
+          "n_games": 10
+        }
+      },
+      "skill_spread": 0.08287037037037037,
+      "n_games": 10
+    },
+    "parent_snapshot": {
+      "rows": 16,
+      "cols": 16,
+      "mine_count": 40,
+      "starting_health": 3,
+      "mine_damage": 2,
+      "safe_first_click": true,
+      "reveal_strategy": "gen-bda02263",
+      "flag_limit": null,
+      "mine_behavior": "static",
+      "info_strategy": "direction",
+      "neighborhood": "moore",
+      "win_condition": "standard"
+    },
+    "generation": 3,
+    "code_kind": null,
+    "code_source": null,
+    "code_key": null
+  },
+  {
+    "config_snapshot": {
+      "rows": 16,
+      "cols": 16,
+      "mine_count": 40,
+      "starting_health": 1,
+      "mine_damage": 3,
+      "safe_first_click": true,
+      "reveal_strategy": "cascade",
+      "flag_limit": null,
+      "mine_behavior": "static",
+      "info_strategy": "noisy-count",
+      "neighborhood": "moore",
+      "win_condition": "standard"
+    },
+    "description": "Noisy mine counts, high mine damage, and no health buffer force extreme caution and reward agents that can effectively filter misinformation and make precise deductions.",
+    "fitness": {
+      "per_agent": {
+        "random": {
+          "win_rate": 0.0,
+          "avg_cells_revealed": 81.5,
+          "avg_progress_fraction": 0.3773148148148148,
+          "avg_mines_hit": 1.0,
+          "avg_turns": 5.7,
+          "n_games": 10
+        },
+        "pafg": {
+          "win_rate": 0.7,
+          "avg_cells_revealed": 176.7,
+          "avg_progress_fraction": 0.8180555555555555,
+          "avg_mines_hit": 0.3,
+          "avg_turns": 93.3,
+          "n_games": 10
+        },
+        "neural": {
+          "win_rate": 0.0,
+          "avg_cells_revealed": 127.5,
+          "avg_progress_fraction": 0.5902777777777778,
+          "avg_mines_hit": 1.0,
+          "avg_turns": 23.7,
+          "n_games": 10
+        }
+      },
+      "skill_spread": 0.4407407407407407,
+      "n_games": 10
+    },
+    "parent_snapshot": {
+      "rows": 16,
+      "cols": 16,
+      "mine_count": 40,
+      "starting_health": 1,
+      "mine_damage": 1,
+      "safe_first_click": true,
+      "reveal_strategy": "cascade",
+      "flag_limit": null,
+      "mine_behavior": "static",
+      "info_strategy": "count-mines",
+      "neighborhood": "moore",
+      "win_condition": "standard"
+    },
+    "generation": 1,
+    "code_kind": null,
+    "code_source": null,
+    "code_key": null
+  },
+  {
+    "config_snapshot": {
+      "rows": 16,
+      "cols": 16,
+      "mine_count": 40,
+      "starting_health": 1,
+      "mine_damage": 3,
+      "safe_first_click": true,
+      "reveal_strategy": "cascade",
+      "flag_limit": null,
+      "mine_behavior": "static",
+      "info_strategy": "direction",
+      "neighborhood": "moore",
+      "win_condition": "standard"
+    },
+    "description": "Revealed cells show a direction to the nearest mine, with high mine damage and no health buffer, demanding precise deduction from directional cues and punishing guesswork severely.",
+    "fitness": {
+      "per_agent": {
+        "random": {
+          "win_rate": 0.0,
+          "avg_cells_revealed": 65.9,
+          "avg_progress_fraction": 0.30509259259259264,
+          "avg_mines_hit": 1.0,
+          "avg_turns": 5.2,
+          "n_games": 10
+        },
+        "pafg": {
+          "win_rate": 0.9,
+          "avg_cells_revealed": 215.8,
+          "avg_progress_fraction": 0.9990740740740741,
+          "avg_mines_hit": 0.1,
+          "avg_turns": 115.1,
+          "n_games": 10
+        },
+        "neural": {
+          "win_rate": 0.0,
+          "avg_cells_revealed": 99.7,
+          "avg_progress_fraction": 0.4615740740740741,
+          "avg_mines_hit": 1.0,
+          "avg_turns": 17.2,
+          "n_games": 10
+        }
+      },
+      "skill_spread": 0.6939814814814815,
+      "n_games": 10
+    },
+    "parent_snapshot": {
+      "rows": 16,
+      "cols": 16,
+      "mine_count": 40,
+      "starting_health": 1,
+      "mine_damage": 3,
+      "safe_first_click": true,
+      "reveal_strategy": "cascade",
+      "flag_limit": null,
+      "mine_behavior": "static",
+      "info_strategy": "noisy-count",
+      "neighborhood": "moore",
+      "win_condition": "standard"
+    },
+    "generation": 2,
+    "code_kind": null,
+    "code_source": null,
+    "code_key": null
+  },
+  {
+    "config_snapshot": {
+      "rows": 16,
+      "cols": 16,
+      "mine_count": 40,
+      "starting_health": 1,
+      "mine_damage": 3,
+      "safe_first_click": true,
+      "reveal_strategy": "gen-bda02263",
+      "flag_limit": null,
+      "mine_behavior": "static",
+      "info_strategy": "parity",
+      "neighborhood": "gen-c53e85a7",
+      "win_condition": "standard"
+    },
+    "description": "Provides hexagonal grid connectivity, increasing the number of potential neighbors and thus local information density.",
+    "fitness": {
+      "per_agent": {
+        "random": {
+          "win_rate": 0.0,
+          "avg_cells_revealed": 24.2,
+          "avg_progress_fraction": 0.11203703703703703,
+          "avg_mines_hit": 1.0,
+          "avg_turns": 7.8,
+          "n_games": 10
+        },
+        "pafg": {
+          "win_rate": 0.0,
+          "avg_cells_revealed": 33.6,
+          "avg_progress_fraction": 0.15555555555555556,
+          "avg_mines_hit": 1.0,
+          "avg_turns": 16.1,
+          "n_games": 10
+        },
+        "neural": {
+          "win_rate": 0.0,
+          "avg_cells_revealed": 32.2,
+          "avg_progress_fraction": 0.14907407407407408,
+          "avg_mines_hit": 1.0,
+          "avg_turns": 12.0,
+          "n_games": 10
+        }
+      },
+      "skill_spread": 0.043518518518518526,
+      "n_games": 10
+    },
+    "parent_snapshot": {
+      "rows": 16,
+      "cols": 16,
+      "mine_count": 40,
+      "starting_health": 1,
+      "mine_damage": 3,
+      "safe_first_click": true,
+      "reveal_strategy": "gen-bda02263",
+      "flag_limit": null,
+      "mine_behavior": "static",
+      "info_strategy": "parity",
+      "neighborhood": "moore",
+      "win_condition": "standard"
+    },
+    "generation": 4,
+    "code_kind": "neighborhood",
+    "code_source": "class HexagonalNeighborhood(Neighborhood):\n    \"\"\"Hexagonal grid connectivity. Each cell has up to 6 neighbors.\"\"\"\n\n    _OFFSETS = [\n        (-1, 0), (1, 0),  # Up, Down\n        (0, -1), (0, 1),  # Left, Right\n        (-1, 1), (1, -1)  # Diagonals (depending on orientation)\n    ]\n\n    def offsets(self) -> list[tuple[int, int]]:\n        return self._OFFSETS",
+    "code_key": "gen-c53e85a7"
+  },
+  {
+    "config_snapshot": {
+      "rows": 16,
+      "cols": 16,
+      "mine_count": 40,
+      "starting_health": 1,
+      "mine_damage": 4,
+      "safe_first_click": true,
+      "reveal_strategy": "single",
+      "flag_limit": null,
+      "mine_behavior": "static",
+      "info_strategy": "direction",
+      "neighborhood": "moore",
+      "win_condition": "standard"
+    },
+    "description": "Directional mine indicators with no health buffer and high mine damage force extreme precision and punish any misstep severely, heavily favoring agents that can reliably interpret directional cues.",
+    "fitness": {
+      "per_agent": {
+        "random": {
+          "win_rate": 0.0,
+          "avg_cells_revealed": 8.0,
+          "avg_progress_fraction": 0.037037037037037035,
+          "avg_mines_hit": 1.0,
+          "avg_turns": 9.0,
+          "n_games": 10
+        },
+        "pafg": {
+          "win_rate": 0.0,
+          "avg_cells_revealed": 5.6,
+          "avg_progress_fraction": 0.025925925925925925,
+          "avg_mines_hit": 1.0,
+          "avg_turns": 6.6,
+          "n_games": 10
+        },
+        "neural": {
+          "win_rate": 0.0,
+          "avg_cells_revealed": 5.5,
+          "avg_progress_fraction": 0.02546296296296296,
+          "avg_mines_hit": 1.0,
+          "avg_turns": 6.5,
+          "n_games": 10
+        }
+      },
+      "skill_spread": -0.01111111111111111,
+      "n_games": 10
+    },
+    "parent_snapshot": {
+      "rows": 16,
+      "cols": 16,
+      "mine_count": 40,
+      "starting_health": 2,
+      "mine_damage": 4,
+      "safe_first_click": true,
+      "reveal_strategy": "single",
+      "flag_limit": null,
+      "mine_behavior": "static",
+      "info_strategy": "noisy-count",
+      "neighborhood": "moore",
+      "win_condition": "standard"
+    },
+    "generation": 3,
+    "code_kind": null,
+    "code_source": null,
+    "code_key": null
+  },
+  {
+    "config_snapshot": {
+      "rows": 16,
+      "cols": 16,
+      "mine_count": 40,
+      "starting_health": 1,
+      "mine_damage": 3,
+      "safe_first_click": true,
+      "reveal_strategy": "single",
+      "flag_limit": null,
+      "mine_behavior": "gen-a53059b3",
+      "info_strategy": "noisy-count",
+      "neighborhood": "moore",
+      "win_condition": "standard"
+    },
+    "description": "Single-cell reveals with noisy mine counts and high mine damage force extreme caution and reward agents that can effectively filter misinformation and make precise deductions.",
+    "fitness": {
+      "per_agent": {
+        "random": {
+          "win_rate": 0.0,
+          "avg_cells_revealed": 6.6,
+          "avg_progress_fraction": 0.030555555555555555,
+          "avg_mines_hit": 1.0,
+          "avg_turns": 7.6,
+          "n_games": 10
+        },
+        "pafg": {
+          "win_rate": 0.0,
+          "avg_cells_revealed": 9.4,
+          "avg_progress_fraction": 0.04351851851851852,
+          "avg_mines_hit": 1.0,
+          "avg_turns": 10.6,
+          "n_games": 10
+        },
+        "neural": {
+          "win_rate": 0.0,
+          "avg_cells_revealed": 9.9,
+          "avg_progress_fraction": 0.04583333333333334,
+          "avg_mines_hit": 1.0,
+          "avg_turns": 10.9,
+          "n_games": 10
+        }
+      },
+      "skill_spread": 0.012962962962962964,
+      "n_games": 10
+    },
+    "parent_snapshot": {
+      "rows": 16,
+      "cols": 16,
+      "mine_count": 40,
+      "starting_health": 1,
+      "mine_damage": 2,
+      "safe_first_click": true,
+      "reveal_strategy": "single",
+      "flag_limit": null,
+      "mine_behavior": "gen-a53059b3",
+      "info_strategy": "noisy-count",
+      "neighborhood": "moore",
+      "win_condition": "standard"
+    },
+    "generation": 3,
+    "code_kind": null,
+    "code_source": null,
+    "code_key": null
+  },
+  {
+    "config_snapshot": {
+      "rows": 16,
+      "cols": 16,
+      "mine_count": 40,
+      "starting_health": 1,
+      "mine_damage": 3,
+      "safe_first_click": true,
+      "reveal_strategy": "single",
+      "flag_limit": null,
+      "mine_behavior": "static",
+      "info_strategy": "distance",
+      "neighborhood": "moore",
+      "win_condition": "standard"
+    },
+    "description": "Revealed cells show distance to the nearest mine, with single-cell reveals and high mine damage, forcing precise spatial deduction.",
+    "fitness": {
+      "per_agent": {
+        "random": {
+          "win_rate": 0.0,
+          "avg_cells_revealed": 7.0,
+          "avg_progress_fraction": 0.032407407407407406,
+          "avg_mines_hit": 1.0,
+          "avg_turns": 8.0,
+          "n_games": 10
+        },
+        "pafg": {
+          "win_rate": 0.0,
+          "avg_cells_revealed": 6.7,
+          "avg_progress_fraction": 0.031018518518518518,
+          "avg_mines_hit": 1.0,
+          "avg_turns": 8.0,
+          "n_games": 10
+        },
+        "neural": {
+          "win_rate": 0.0,
+          "avg_cells_revealed": 12.8,
+          "avg_progress_fraction": 0.05925925925925926,
+          "avg_mines_hit": 1.0,
+          "avg_turns": 13.8,
+          "n_games": 10
+        }
+      },
+      "skill_spread": -0.0013888888888888874,
+      "n_games": 10
+    },
+    "parent_snapshot": {
+      "rows": 16,
+      "cols": 16,
+      "mine_count": 40,
+      "starting_health": 1,
+      "mine_damage": 4,
+      "safe_first_click": true,
+      "reveal_strategy": "single",
+      "flag_limit": null,
+      "mine_behavior": "static",
+      "info_strategy": "direction",
+      "neighborhood": "moore",
+      "win_condition": "standard"
+    },
+    "generation": 4,
+    "code_kind": null,
+    "code_source": null,
+    "code_key": null
+  },
+  {
+    "config_snapshot": {
+      "rows": 16,
+      "cols": 16,
+      "mine_count": 40,
+      "starting_health": 5,
+      "mine_damage": 2,
+      "safe_first_click": true,
+      "reveal_strategy": "cascade",
+      "flag_limit": null,
+      "mine_behavior": "gen-496e4023",
+      "info_strategy": "gen-b1d711e3",
+      "neighborhood": "moore",
+      "win_condition": "standard"
+    },
+    "description": "Revealed mines can trigger nearby unrevealed mines to detonate, with detonation chance increasing based on adjacent revealed cells.",
+    "fitness": {
+      "per_agent": {
+        "random": {
+          "win_rate": 0.0,
+          "avg_cells_revealed": 103.9,
+          "avg_progress_fraction": 0.48101851851851857,
+          "avg_mines_hit": 3.0,
+          "avg_turns": 9.4,
+          "n_games": 10
+        },
+        "pafg": {
+          "win_rate": 1.0,
+          "avg_cells_revealed": 216.0,
+          "avg_progress_fraction": 1.0,
+          "avg_mines_hit": 0.0,
+          "avg_turns": 126.9,
+          "n_games": 10
+        },
+        "neural": {
+          "win_rate": 0.0,
+          "avg_cells_revealed": 119.3,
+          "avg_progress_fraction": 0.5523148148148148,
+          "avg_mines_hit": 3.0,
+          "avg_turns": 25.3,
+          "n_games": 10
+        }
+      },
+      "skill_spread": 0.5189814814814815,
+      "n_games": 10
+    },
+    "parent_snapshot": {
+      "rows": 16,
+      "cols": 16,
+      "mine_count": 40,
+      "starting_health": 2,
+      "mine_damage": 1,
+      "safe_first_click": true,
+      "reveal_strategy": "cascade",
+      "flag_limit": null,
+      "mine_behavior": "static",
+      "info_strategy": "gen-b1d711e3",
+      "neighborhood": "moore",
+      "win_condition": "standard"
+    },
+    "generation": 2,
+    "code_kind": "mine_behavior",
+    "code_source": "class UnstableMines(MineBehavior):\n    \"\"\"\n    When a mine is revealed, it destabilizes and can cause nearby unrevealed\n    mines to also reveal themselves and detonate. The chance of detonation\n    increases with the number of adjacent revealed mines to the detonating\n    mine. This encourages careful play around already revealed numbers.\n    \"\"\"\n\n    def on_post_action(self, board, game, action):\n        if not action.get(\"hit_mine\"):\n            return\n\n        origin = action[\"coords\"]\n        queue: deque[tuple[int, int]] = deque([origin])\n        seen: set[tuple[int, int]] = {origin}\n\n        while queue:\n            r, c = queue.popleft()\n\n            # Check direct neighbors of the detonated mine for instability\n            candidates = []\n            for nr, nc in board.neighbors(r, c):\n                if board.grid[nr][nc].is_mine and not board.grid[nr][nc].is_revealed:\n                    candidates.append((nr, nc))\n\n            for nr, nc in candidates:\n                if (nr, nc) in seen:\n                    continue\n\n                # Calculate instability based on revealed neighbors\n                revealed_neighbors_count = 0\n                for nnr, nnc in board.neighbors(nr, nc):\n                    if board.grid[nnr][nnc].is_revealed:\n                        revealed_neighbors_count += 1\n\n                # Probability of detonation increases with revealed neighbors\n                # A simple linear relationship, can be tuned.\n                detonation_chance = min(1.0, revealed_neighbors_count * 0.2) # Max 20% with 5 revealed neighbors\n\n                if self._rng.random() < detonation_chance:\n                    seen.add((nr, nc))\n                    board.reveal_mine(nr, nc)\n                    action[\"newly_revealed\"].append((nr, nc))\n                    game.player.take_damage()\n                    if not game.player.is_alive():\n                        return\n                    # Add to queue for cascading effect\n                    queue.append((nr, nc))\n",
+    "code_key": "gen-496e4023"
+  },
+  {
+    "config_snapshot": {
+      "rows": 16,
+      "cols": 16,
+      "mine_count": 40,
+      "starting_health": 1,
+      "mine_damage": 3,
+      "safe_first_click": true,
+      "reveal_strategy": "gen-bda02263",
+      "flag_limit": null,
+      "mine_behavior": "static",
+      "info_strategy": "direction",
+      "neighborhood": "moore",
+      "win_condition": "standard"
+    },
+    "description": "High mine damage and directional mine indicators with no health buffer force extreme precision and punish any misstep severely, heavily favoring agents that can reliably interpret directional cues.",
+    "fitness": {
+      "per_agent": {
+        "random": {
+          "win_rate": 0.0,
+          "avg_cells_revealed": 39.8,
+          "avg_progress_fraction": 0.18425925925925923,
+          "avg_mines_hit": 1.0,
+          "avg_turns": 8.1,
+          "n_games": 10
+        },
+        "pafg": {
+          "win_rate": 0.0,
+          "avg_cells_revealed": 30.2,
+          "avg_progress_fraction": 0.1398148148148148,
+          "avg_mines_hit": 1.0,
+          "avg_turns": 13.5,
+          "n_games": 10
+        },
+        "neural": {
+          "win_rate": 0.0,
+          "avg_cells_revealed": 34.4,
+          "avg_progress_fraction": 0.15925925925925924,
+          "avg_mines_hit": 1.0,
+          "avg_turns": 8.3,
+          "n_games": 10
+        }
+      },
+      "skill_spread": -0.044444444444444425,
+      "n_games": 10
+    },
+    "parent_snapshot": {
+      "rows": 16,
+      "cols": 16,
+      "mine_count": 40,
+      "starting_health": 2,
+      "mine_damage": 1,
+      "safe_first_click": true,
+      "reveal_strategy": "gen-bda02263",
+      "flag_limit": null,
+      "mine_behavior": "static",
+      "info_strategy": "count-mines",
+      "neighborhood": "moore",
+      "win_condition": "standard"
+    },
+    "generation": 2,
+    "code_kind": null,
+    "code_source": null,
+    "code_key": null
+  },
+  {
+    "config_snapshot": {
+      "rows": 16,
+      "cols": 16,
+      "mine_count": 40,
+      "starting_health": 4,
+      "mine_damage": 1,
+      "safe_first_click": true,
+      "reveal_strategy": "gen-ecf30daa",
+      "flag_limit": null,
+      "mine_behavior": "static",
+      "info_strategy": "distance",
+      "neighborhood": "moore",
+      "win_condition": "gen-c4ec4945"
+    },
+    "description": "Reveals a cell and proactively reveals its neighbors if the number of unrevealed neighbors exactly matches the cell's mine count, potentially triggering cascades.",
+    "fitness": {
+      "per_agent": {
+        "random": {
+          "win_rate": 0.9,
+          "avg_cells_revealed": 2.4,
+          "avg_progress_fraction": 0.011111111111111112,
+          "avg_mines_hit": 0.9,
+          "avg_turns": 3.3,
+          "n_games": 10
+        },
+        "pafg": {
+          "win_rate": 1.0,
+          "avg_cells_revealed": 2.0,
+          "avg_progress_fraction": 0.009259259259259259,
+          "avg_mines_hit": 0.1,
+          "avg_turns": 2.1,
+          "n_games": 10
+        },
+        "neural": {
+          "win_rate": 1.0,
+          "avg_cells_revealed": 2.4,
+          "avg_progress_fraction": 0.011111111111111112,
+          "avg_mines_hit": 0.2,
+          "avg_turns": 2.6,
+          "n_games": 10
+        }
+      },
+      "skill_spread": -0.0018518518518518528,
+      "n_games": 10
+    },
+    "parent_snapshot": {
+      "rows": 16,
+      "cols": 16,
+      "mine_count": 40,
+      "starting_health": 3,
+      "mine_damage": 1,
+      "safe_first_click": true,
+      "reveal_strategy": "cascade",
+      "flag_limit": null,
+      "mine_behavior": "static",
+      "info_strategy": "distance",
+      "neighborhood": "moore",
+      "win_condition": "gen-c4ec4945"
+    },
+    "generation": 3,
+    "code_kind": "reveal_strategy",
+    "code_source": "class ProactiveCascade(RevealStrategy):\n    \"\"\"\n    Reveals a cell and proactively attempts to reveal its neighbors if the revealed cell's\n    adjacent mine count is met by its unrevealed neighbors. This encourages immediate deduction\n    based on local information.\n    \"\"\"\n\n    def reveal(self, board: Board, r: int, c: int) -> list[tuple[int, int]]:\n        cell = board.grid[r][c]\n        if cell.is_revealed or cell.is_flagged:\n            return []\n\n        cell.is_revealed = True\n        revealed_cells = [(r, c)]\n\n        if cell.adjacent_mines == 0:\n            # Standard cascade for zero cells\n            queue: deque[tuple[int, int]] = deque([(r, c)])\n            visited: set[tuple[int, int]] = {(r, c)}\n\n            while queue:\n                cr, cc = queue.popleft()\n                current_cell = board.grid[cr][cc]\n\n                if current_cell.is_revealed or current_cell.is_flagged or current_cell.is_mine:\n                    continue\n\n                current_cell.is_revealed = True\n                revealed_cells.append((cr, cc))\n\n                if current_cell.adjacent_mines == 0:\n                    for nr, nc in board.neighbors(cr, cc):\n                        if (nr, nc) not in visited:\n                            visited.add((nr, nc))\n                            queue.append((nr, nc))\n        else:\n            # Proactive neighbor reveal for numbered cells\n            unrevealed_neighbors = []\n            for nr, nc in board.neighbors(r, c):\n                neighbor_cell = board.grid[nr][nc]\n                if not neighbor_cell.is_revealed and not neighbor_cell.is_flagged:\n                    unrevealed_neighbors.append((nr, nc))\n\n            if len(unrevealed_neighbors) == cell.adjacent_mines:\n                for nr, nc in unrevealed_neighbors:\n                    neighbor_cell = board.grid[nr][nc]\n                    if not neighbor_cell.is_revealed and not neighbor_cell.is_flagged and not neighbor_cell.is_mine:\n                        # Recursively call reveal, but only if it's not a mine and not already revealed/flagged\n                        # This is different from the cascade, as it's a controlled chain reaction\n                        # We don't want to trigger cascade from these proactively revealed cells unless they are 0\n                        neighbor_cell.is_revealed = True\n                        revealed_cells.append((nr, nc))\n                        if neighbor_cell.adjacent_mines == 0:\n                           # If a proactively revealed neighbor is a 0, then cascade from it\n                           queue: deque[tuple[int, int]] = deque([(nr, nc)])\n                           visited: set[tuple[int, int]] = {(nr, nc)}\n                           while queue:\n                                ccr, ccn = queue.popleft()\n                                current_nn_cell = board.grid[ccr][ccn]\n                                if current_nn_cell.is_revealed or current_nn_cell.is_flagged or current_nn_cell.is_mine:\n                                    continue\n                                current_nn_cell.is_revealed = True\n                                revealed_cells.append((ccr, ccn))\n                                if current_nn_cell.adjacent_mines == 0:\n                                    for nnr, nnc in board.neighbors(ccr, ccn):\n                                        if (nnr, nnc) not in visited:\n                                            visited.add((nnr, nnc))\n                                            queue.append((nnr, nnc))\n\n        return revealed_cells",
+    "code_key": "gen-ecf30daa"
+  },
+  {
+    "config_snapshot": {
+      "rows": 16,
+      "cols": 16,
+      "mine_count": 40,
+      "starting_health": 1,
+      "mine_damage": 4,
+      "safe_first_click": true,
+      "reveal_strategy": "single",
+      "flag_limit": null,
+      "mine_behavior": "static",
+      "info_strategy": "noisy-count",
+      "neighborhood": "moore",
+      "win_condition": "standard"
+    },
+    "description": "High mine damage with noisy mine counts and no health buffer makes every click a high-stakes gamble, heavily favoring agents that can filter misinformation.",
+    "fitness": {
+      "per_agent": {
+        "random": {
+          "win_rate": 0.0,
+          "avg_cells_revealed": 6.1,
+          "avg_progress_fraction": 0.02824074074074074,
+          "avg_mines_hit": 1.0,
+          "avg_turns": 7.1,
+          "n_games": 10
+        },
+        "pafg": {
+          "win_rate": 0.0,
+          "avg_cells_revealed": 6.5,
+          "avg_progress_fraction": 0.03009259259259259,
+          "avg_mines_hit": 1.0,
+          "avg_turns": 7.9,
+          "n_games": 10
+        },
+        "neural": {
+          "win_rate": 0.0,
+          "avg_cells_revealed": 11.0,
+          "avg_progress_fraction": 0.05092592592592592,
+          "avg_mines_hit": 1.0,
+          "avg_turns": 12.0,
+          "n_games": 10
+        }
+      },
+      "skill_spread": 0.001851851851851851,
+      "n_games": 10
+    },
+    "parent_snapshot": {
+      "rows": 16,
+      "cols": 16,
+      "mine_count": 40,
+      "starting_health": 1,
+      "mine_damage": 4,
+      "safe_first_click": true,
+      "reveal_strategy": "single",
+      "flag_limit": null,
+      "mine_behavior": "static",
+      "info_strategy": "direction",
+      "neighborhood": "moore",
+      "win_condition": "standard"
+    },
+    "generation": 4,
+    "code_kind": null,
+    "code_source": null,
+    "code_key": null
+  },
+  {
+    "config_snapshot": {
+      "rows": 16,
+      "cols": 16,
+      "mine_count": 40,
+      "starting_health": 5,
+      "mine_damage": 3,
+      "safe_first_click": true,
+      "reveal_strategy": "cascade",
+      "flag_limit": null,
+      "mine_behavior": "gen-a089ef6c",
+      "info_strategy": "distance",
+      "neighborhood": "moore",
+      "win_condition": "standard"
+    },
+    "description": "When a mine is revealed, it causes all adjacent unrevealed mines to detonate, potentially triggering a cascade of explosions.",
+    "fitness": {
+      "per_agent": {
+        "random": {
+          "win_rate": 0.0,
+          "avg_cells_revealed": 94.1,
+          "avg_progress_fraction": 0.4356481481481481,
+          "avg_mines_hit": 2.0,
+          "avg_turns": 7.0,
+          "n_games": 10
+        },
+        "pafg": {
+          "win_rate": 0.9,
+          "avg_cells_revealed": 197.0,
+          "avg_progress_fraction": 0.9120370370370371,
+          "avg_mines_hit": 0.2,
+          "avg_turns": 106.7,
+          "n_games": 10
+        },
+        "neural": {
+          "win_rate": 0.1,
+          "avg_cells_revealed": 100.6,
+          "avg_progress_fraction": 0.46574074074074073,
+          "avg_mines_hit": 1.8,
+          "avg_turns": 14.6,
+          "n_games": 10
+        }
+      },
+      "skill_spread": 0.476388888888889,
+      "n_games": 10
+    },
+    "parent_snapshot": {
+      "rows": 16,
+      "cols": 16,
+      "mine_count": 40,
+      "starting_health": 3,
+      "mine_damage": 2,
+      "safe_first_click": true,
+      "reveal_strategy": "cascade",
+      "flag_limit": null,
+      "mine_behavior": "static",
+      "info_strategy": "distance",
+      "neighborhood": "moore",
+      "win_condition": "standard"
+    },
+    "generation": 2,
+    "code_kind": "mine_behavior",
+    "code_source": "class ProximityDetonation(MineBehavior):\n    \"\"\"\n    When a mine is revealed, it causes all adjacent unrevealed mines to detonate.\n    This detonation can cascade, causing further detonations.\n    This introduces a risk-reward for revealing cells near potential mine clusters.\n    \"\"\"\n\n    def on_post_action(self, board, game, action):\n        if not action.get(\"hit_mine\"):\n            return\n\n        origin_mine = action[\"coords\"]\n        detonation_queue: deque[tuple[int, int]] = deque([origin_mine])\n        triggered_mines: set[tuple[int, int]] = {origin_mine}\n\n        while detonation_queue:\n            current_r, current_c = detonation_queue.popleft()\n\n            # Check neighbors of the detonating mine\n            for nr, nc in board.neighbors(current_r, current_c):\n                if not board.in_bounds(nr, nc):\n                    continue\n\n                neighbor_cell = board.grid[nr][nc]\n\n                # If it's an unrevealed mine and we haven't processed it yet\n                if neighbor_cell.is_mine and not neighbor_cell.is_revealed and (nr, nc) not in triggered_mines:\n                    triggered_mines.add((nr, nc))\n                    board.reveal_mine(nr, nc)\n                    action[\"newly_revealed\"].append((nr, nc))\n                    game.player.take_damage()\n\n                    if not game.player.is_alive():\n                        return  # Player died, stop the chain reaction\n\n                    # Add this newly detonated mine to the queue for cascading effects\n                    detonation_queue.append((nr, nc))\n",
+    "code_key": "gen-a089ef6c"
+  },
+  {
+    "config_snapshot": {
+      "rows": 16,
+      "cols": 16,
+      "mine_count": 40,
+      "starting_health": 2,
+      "mine_damage": 2,
+      "safe_first_click": true,
+      "reveal_strategy": "single",
+      "flag_limit": null,
+      "mine_behavior": "static",
+      "info_strategy": "gen-6b02b66a",
+      "neighborhood": "moore",
+      "win_condition": "standard"
+    },
+    "description": "Reveals only whether a cell has any adjacent mines (1) or no adjacent mines (0), making deduction of exact mine counts through empty cells critical.",
+    "fitness": {
+      "per_agent": {
+        "random": {
+          "win_rate": 0.0,
+          "avg_cells_revealed": 4.6,
+          "avg_progress_fraction": 0.021296296296296296,
+          "avg_mines_hit": 1.0,
+          "avg_turns": 5.6,
+          "n_games": 10
+        },
+        "pafg": {
+          "win_rate": 0.0,
+          "avg_cells_revealed": 4.5,
+          "avg_progress_fraction": 0.020833333333333332,
+          "avg_mines_hit": 1.0,
+          "avg_turns": 5.5,
+          "n_games": 10
+        },
+        "neural": {
+          "win_rate": 0.0,
+          "avg_cells_revealed": 5.8,
+          "avg_progress_fraction": 0.026851851851851852,
+          "avg_mines_hit": 1.0,
+          "avg_turns": 6.8,
+          "n_games": 10
+        }
+      },
+      "skill_spread": -0.00046296296296296363,
+      "n_games": 10
+    },
+    "parent_snapshot": {
+      "rows": 16,
+      "cols": 16,
+      "mine_count": 40,
+      "starting_health": 1,
+      "mine_damage": 3,
+      "safe_first_click": true,
+      "reveal_strategy": "single",
+      "flag_limit": null,
+      "mine_behavior": "static",
+      "info_strategy": "parity",
+      "neighborhood": "moore",
+      "win_condition": "standard"
+    },
+    "generation": 2,
+    "code_kind": "info_strategy",
+    "code_source": "class BinaryNeighborInfo(InfoStrategy):\n    \"\"\"\n    Reveals only whether a cell has *any* adjacent mines (1) or *no* adjacent mines (0).\n    This drastically reduces information, forcing players to rely on the exact count\n    of neighbors revealed as '0's to deduce mine locations.\n    \"\"\"\n\n    def __init__(self, seed: int | None = None) -> None:\n        super().__init__(seed)\n\n    def encode(self, board: \"Board\", r: int, c: int) -> str:\n        n = board.grid[r][c].adjacent_mines\n        if n == 0:\n            return \"0\"\n        return \"1\"\n",
+    "code_key": "gen-6b02b66a"
+  },
+  {
+    "config_snapshot": {
+      "rows": 16,
+      "cols": 16,
+      "mine_count": 40,
+      "starting_health": 1,
+      "mine_damage": 1,
+      "safe_first_click": true,
+      "reveal_strategy": "single",
+      "flag_limit": null,
+      "mine_behavior": "gen-d4503419",
+      "info_strategy": "parity",
+      "neighborhood": "moore",
+      "win_condition": "standard"
+    },
+    "description": "Single-cell reveals with parity-based mine counts and no health require extremely precise deduction, heavily penalizing random guesses.",
+    "fitness": {
+      "per_agent": {
+        "random": {
+          "win_rate": 0.0,
+          "avg_cells_revealed": 8.5,
+          "avg_progress_fraction": 0.03935185185185185,
+          "avg_mines_hit": 1.0,
+          "avg_turns": 9.5,
+          "n_games": 10
+        },
+        "pafg": {
+          "win_rate": 0.0,
+          "avg_cells_revealed": 5.2,
+          "avg_progress_fraction": 0.024074074074074074,
+          "avg_mines_hit": 1.0,
+          "avg_turns": 6.2,
+          "n_games": 10
+        },
+        "neural": {
+          "win_rate": 0.0,
+          "avg_cells_revealed": 9.4,
+          "avg_progress_fraction": 0.04351851851851852,
+          "avg_mines_hit": 1.0,
+          "avg_turns": 10.1,
+          "n_games": 10
+        }
+      },
+      "skill_spread": -0.015277777777777779,
+      "n_games": 10
+    },
+    "parent_snapshot": {
+      "rows": 16,
+      "cols": 16,
+      "mine_count": 40,
+      "starting_health": 4,
+      "mine_damage": 1,
+      "safe_first_click": true,
+      "reveal_strategy": "gen-bda02263",
+      "flag_limit": null,
+      "mine_behavior": "gen-d4503419",
+      "info_strategy": "direction",
+      "neighborhood": "moore",
+      "win_condition": "standard"
+    },
+    "generation": 4,
+    "code_kind": null,
+    "code_source": null,
+    "code_key": null
+  },
+  {
+    "config_snapshot": {
+      "rows": 16,
+      "cols": 16,
+      "mine_count": 40,
+      "starting_health": 3,
+      "mine_damage": 2,
+      "safe_first_click": true,
+      "reveal_strategy": "gen-7b6c4b2f",
+      "flag_limit": null,
+      "mine_behavior": "static",
+      "info_strategy": "parity",
+      "neighborhood": "moore",
+      "win_condition": "standard"
+    },
+    "description": "Reveals contiguous, unrevealed neighbors of a numbered cell if their count matches the cell's mine count, allowing for rapid deduction of safe areas or mine clusters.",
+    "fitness": {
+      "per_agent": {
+        "random": {
+          "win_rate": 0.0,
+          "avg_cells_revealed": 11.5,
+          "avg_progress_fraction": 0.05324074074074074,
+          "avg_mines_hit": 2.0,
+          "avg_turns": 13.5,
+          "n_games": 10
+        },
+        "pafg": {
+          "win_rate": 0.0,
+          "avg_cells_revealed": 9.8,
+          "avg_progress_fraction": 0.04537037037037037,
+          "avg_mines_hit": 2.0,
+          "avg_turns": 11.8,
+          "n_games": 10
+        },
+        "neural": {
+          "win_rate": 0.0,
+          "avg_cells_revealed": 16.7,
+          "avg_progress_fraction": 0.07731481481481481,
+          "avg_mines_hit": 2.0,
+          "avg_turns": 18.5,
+          "n_games": 10
+        }
+      },
+      "skill_spread": -0.007870370370370368,
+      "n_games": 10
+    },
+    "parent_snapshot": {
+      "rows": 16,
+      "cols": 16,
+      "mine_count": 40,
+      "starting_health": 1,
+      "mine_damage": 3,
+      "safe_first_click": true,
+      "reveal_strategy": "gen-bda02263",
+      "flag_limit": null,
+      "mine_behavior": "static",
+      "info_strategy": "parity",
+      "neighborhood": "moore",
+      "win_condition": "standard"
+    },
+    "generation": 4,
+    "code_kind": "reveal_strategy",
+    "code_source": "class ContiguousMineHint(RevealStrategy):\n    \"\"\"\n    When a numbered cell is revealed, if its mine count exactly matches\n    the number of its contiguous, unrevealed neighbors, those neighbors\n    are revealed. This encourages deduction of mine clusters.\n    \"\"\"\n\n    def reveal(self, board: Board, r: int, c: int) -> list[tuple[int, int]]:\n        cell = board.grid[r][c]\n        if cell.is_mine or cell.is_revealed or cell.is_flagged:\n            return []\n\n        cell.is_revealed = True\n        revealed_cells: list[tuple[int, int]] = [(r, c)]\n\n        if cell.adjacent_mines > 0:\n            unrevealed_neighbors = []\n            for nr, nc in board.neighbors(r, c):\n                neighbor_cell = board.grid[nr][nc]\n                if not neighbor_cell.is_revealed and not neighbor_cell.is_flagged:\n                    unrevealed_neighbors.append((nr, nc))\n            \n            if len(unrevealed_neighbors) == cell.adjacent_mines:\n                for nr, nc in unrevealed_neighbors:\n                    neighbor_cell = board.grid[nr][nc]\n                    if not neighbor_cell.is_mine and not neighbor_cell.is_revealed and not neighbor_cell.is_flagged:\n                        # This is where the magic happens: we proactively reveal\n                        # these neighbors because we've deduced they MUST be safe\n                        # or, more accurately, that they are the *only* places\n                        # the mines could be. If `adjacent_mines` == count of\n                        # unrevealed neighbors, and they are not mines, they must\n                        # be safe and can be revealed without cascading.\n                        # However, the prompt implies that if the *count* matches,\n                        # we reveal them. These could be mines or safe cells. \n                        # The interpretation that makes skill matter is that if\n                        # the count of unrevealed neighbors precisely matches the\n                        # cell's adjacent_mines, we can attempt to reveal those\n                        # neighbors. If they are revealed and are 0s, they cascade.\n                        # If they are numbered, they are just revealed.\n                        # If they are mines, this strategy would fail to reveal them\n                        # as a mine, but the subsequent game logic would handle it.\n                        # For this strategy, we assume the goal is to reveal the\n                        # cells if we can deduce their state based on the count.\n                        # Let's refine: if the count of UNREVEALED NEIGHBORS\n                        # equals adjacent_mines, then those unrevealed neighbors\n                        # *must* be the mines. If they are NOT mines, then this\n                        # condition implies they are safe cells and can be revealed.\n                        # This interpretation makes the most sense for skill.\n                        # The most interesting variant is where revealing these\n                        # *guarantees* they are mines, leading to a cascade if they\n                        # are 0s, or a win if they are all mines.\n                        # Let's go with: if the number of *unrevealed neighbors* \n                        # equals `adjacent_mines`, then **all** those unrevealed\n                        # neighbors are revealed. This is a strong hint.\n                        if not neighbor_cell.is_revealed and not neighbor_cell.is_flagged:\n                             # The core idea is that if the number of unrevealed neighbors\n                             # exactly matches the `adjacent_mines` count for the current cell,\n                             # then we can reveal all those unrevealed neighbors.\n                             # These revealed cells will then determine their own fate (cascade, etc.).\n                             revealed_cells.extend(self.reveal(board, nr, nc))\n        \n        return revealed_cells",
+    "code_key": "gen-7b6c4b2f"
+  },
+  {
+    "config_snapshot": {
+      "rows": 16,
+      "cols": 16,
+      "mine_count": 40,
+      "starting_health": 2,
+      "mine_damage": 1,
+      "safe_first_click": true,
+      "reveal_strategy": "cascade",
+      "flag_limit": null,
+      "mine_behavior": "static",
+      "info_strategy": "distance",
+      "neighborhood": "moore",
+      "win_condition": "gen-5d4532a4"
+    },
+    "description": "Lose immediately if a revealed cell is adjacent to any mine, forcing hyper-precision in safe cell identification.",
+    "fitness": {
+      "per_agent": {
+        "random": {
+          "win_rate": 0.0,
+          "avg_cells_revealed": 43.7,
+          "avg_progress_fraction": 0.20231481481481484,
+          "avg_mines_hit": 0.0,
+          "avg_turns": 1.0,
+          "n_games": 10
+        },
+        "pafg": {
+          "win_rate": 0.0,
+          "avg_cells_revealed": 29.0,
+          "avg_progress_fraction": 0.13425925925925927,
+          "avg_mines_hit": 0.0,
+          "avg_turns": 1.0,
+          "n_games": 10
+        },
+        "neural": {
+          "win_rate": 0.0,
+          "avg_cells_revealed": 63.4,
+          "avg_progress_fraction": 0.2935185185185185,
+          "avg_mines_hit": 0.0,
+          "avg_turns": 1.0,
+          "n_games": 10
+        }
+      },
+      "skill_spread": -0.06805555555555556,
+      "n_games": 10
+    },
+    "parent_snapshot": {
+      "rows": 16,
+      "cols": 16,
+      "mine_count": 40,
+      "starting_health": 3,
+      "mine_damage": 2,
+      "safe_first_click": true,
+      "reveal_strategy": "cascade",
+      "flag_limit": null,
+      "mine_behavior": "static",
+      "info_strategy": "distance",
+      "neighborhood": "moore",
+      "win_condition": "standard"
+    },
+    "generation": 2,
+    "code_kind": "win_condition",
+    "code_source": "class MineAdjacentLoss(WinCondition):\n    \"\"\"\n    The game is lost if any revealed cell has a mine as an adjacent cell.\n    This forces players to be extremely careful with their reveals,\n    as a single mistake can lead to an immediate loss.\n    \"\"\"\n\n    def evaluate(self, board, game, action):\n        for r, row in enumerate(board.grid):\n            for c, cell in enumerate(row):\n                if cell.is_revealed and not cell.is_mine:\n                    for nr, nc in board.neighbors(r, c):\n                        if board.grid[nr][nc].is_mine:\n                            return \"lost\"\n        return None",
+    "code_key": "gen-5d4532a4"
+  },
+  {
+    "config_snapshot": {
+      "rows": 16,
+      "cols": 16,
+      "mine_count": 40,
+      "starting_health": 3,
+      "mine_damage": 2,
+      "safe_first_click": true,
+      "reveal_strategy": "cascade",
+      "flag_limit": null,
+      "mine_behavior": "static",
+      "info_strategy": "gen-fe9f3ad2",
+      "neighborhood": "moore",
+      "win_condition": "standard"
+    },
+    "description": "Reveals the true adjacent mine count only if it's less than or equal to the player's starting health, forcing health management for information access.",
+    "fitness": {
+      "per_agent": {
+        "random": {
+          "win_rate": 0.0,
+          "avg_cells_revealed": 107.8,
+          "avg_progress_fraction": 0.49907407407407406,
+          "avg_mines_hit": 2.0,
+          "avg_turns": 9.5,
+          "n_games": 10
+        },
+        "pafg": {
+          "win_rate": 0.8,
+          "avg_cells_revealed": 199.0,
+          "avg_progress_fraction": 0.9212962962962963,
+          "avg_mines_hit": 0.3,
+          "avg_turns": 192.9,
+          "n_games": 10
+        },
+        "neural": {
+          "win_rate": 0.0,
+          "avg_cells_revealed": 103.3,
+          "avg_progress_fraction": 0.47824074074074074,
+          "avg_mines_hit": 2.0,
+          "avg_turns": 26.6,
+          "n_games": 10
+        }
+      },
+      "skill_spread": 0.4222222222222222,
+      "n_games": 10
+    },
+    "parent_snapshot": {
+      "rows": 16,
+      "cols": 16,
+      "mine_count": 40,
+      "starting_health": 3,
+      "mine_damage": 2,
+      "safe_first_click": true,
+      "reveal_strategy": "cascade",
+      "flag_limit": null,
+      "mine_behavior": "static",
+      "info_strategy": "distance",
+      "neighborhood": "moore",
+      "win_condition": "standard"
+    },
+    "generation": 2,
+    "code_kind": "info_strategy",
+    "code_source": "class ConditionalMineCountInfo(InfoStrategy):\n    \"\"\"\n    Reveals the true adjacent mine count ONLY if it's less than or equal to the\n    player's current health. Otherwise, shows an empty string. This forces\n    players to manage their health strategically to access crucial information.\n    \"\"\"\n\n    def __init__(self, seed: int | None = None) -> None:\n        super().__init__(seed)\n\n    def encode(self, board: \"Board\", r: int, c: int) -> str:\n        if board.grid[r][c].is_revealed:\n            num_mines = board.grid[r][c].adjacent_mines\n            # Access player's current health. This assumes there's a 'player' attribute on the board or game object.\n            # A more robust implementation might require passing the player object or their health directly.\n            # For this example, we'll assume a top-level 'game' object is accessible or player health is stored in config for simplicity.\n            # Let's assume player health is accessible via board.game.player.current_health or similar.\n            # If not directly accessible, this strategy might need to be tied to a different mechanism.\n\n            # For demonstration, let's assume we can get player health. If not, this strategy is unworkable.\n            # A common pattern is that the Board object might have a reference to the Game, which has the Player.\n            # If board.game.player.current_health is not feasible, this must be adjusted.\n            # Let's assume a hypothetical board.game.player.current_health attribute exists.\n            # A safer assumption for a pure info strategy might be to tie it to a config parameter accessible to the strategy.\n            # However, the prompt implies dynamic player health. Let's assume a direct way to access it.\n            \n            # Since we can't assume access to the player object directly from InfoStrategy, and it's not a Board method,\n            # we'll have to assume this strategy is *intended* to work with a game loop that provides this context.\n            # For the purpose of defining the strategy's logic, let's imagine `player_health` is available.\n            \n            # If `player_health` is not directly available to an InfoStrategy, this strategy would need modification\n            # or a different way to access player state. For this problem, we will assume a proxy or direct access.\n            # A common pattern in game frameworks is that the board might have access to the game object which holds the player.\n            # Let's assume `board.game.player.starting_health` is a reasonable proxy if dpnamic health is not directly exposed.\n            # Or, we can tie it to the initial health, making it a static threshold.\n            \n            # Let's try to infer player health from the config if not directly available.\n            # The prompt says `starting_health` is in `board.config`. This might be the intended way.\n            # Let's use `board.config.starting_health` as the threshold, which is a static interpretation but fits the available API.\n            # A truly dynamic health-based reveal would be more complex and might require a different hook.\n            \n            # Re-reading: `starting_health` is a config parameter. If the info strategy is meant to react to *current* health, \n            # it needs access. If it's meant to react to the *initial* health, then `board.config.starting_health` is the way.\n            # Given the constraint of not calling game functions, using config seems more likely.\n            # Let's assume the intent is to reveal numbers up to the initial health threshold.\n            \n            # If dynamic health is truly required, the framework might need to pass player health to `encode`.\n            # Without that, we use the static `starting_health` from config.\n            \n            health_threshold = board.config.starting_health\n            \n            if num_mines > 0 and num_mines <= health_threshold:\n                return str(num_mines)\n            else:\n                return \"\"\n        return \"\"\n",
+    "code_key": "gen-fe9f3ad2"
+  },
+  {
+    "config_snapshot": {
+      "rows": 16,
+      "cols": 16,
+      "mine_count": 40,
+      "starting_health": 4,
+      "mine_damage": 2,
+      "safe_first_click": true,
+      "reveal_strategy": "gen-dc2cb639",
+      "flag_limit": null,
+      "mine_behavior": "static",
+      "info_strategy": "distance",
+      "neighborhood": "moore",
+      "win_condition": "gen-345f3d4b"
+    },
+    "description": "Revealing a mine detonates it and its neighbors; revealing a number reveals all adjacent cells; revealing a zero cascades but also detonates adjacent mines.",
+    "fitness": {
+      "per_agent": {
+        "random": {
+          "win_rate": 0.0,
+          "avg_cells_revealed": 131.5,
+          "avg_progress_fraction": 0.6087962962962963,
+          "avg_mines_hit": 2.0,
+          "avg_turns": 9.6,
+          "n_games": 10
+        },
+        "pafg": {
+          "win_rate": 0.0,
+          "avg_cells_revealed": 168.9,
+          "avg_progress_fraction": 0.7819444444444444,
+          "avg_mines_hit": 1.8,
+          "avg_turns": 237.6,
+          "n_games": 10
+        },
+        "neural": {
+          "win_rate": 0.0,
+          "avg_cells_revealed": 139.2,
+          "avg_progress_fraction": 0.6444444444444444,
+          "avg_mines_hit": 2.0,
+          "avg_turns": 18.3,
+          "n_games": 10
+        }
+      },
+      "skill_spread": 0.17314814814814816,
+      "n_games": 10
+    },
+    "parent_snapshot": {
+      "rows": 16,
+      "cols": 16,
+      "mine_count": 40,
+      "starting_health": 3,
+      "mine_damage": 3,
+      "safe_first_click": true,
+      "reveal_strategy": "cascade",
+      "flag_limit": null,
+      "mine_behavior": "static",
+      "info_strategy": "distance",
+      "neighborhood": "moore",
+      "win_condition": "gen-345f3d4b"
+    },
+    "generation": 3,
+    "code_kind": "reveal_strategy",
+    "code_source": "class MineProximityCascade(RevealStrategy):\n    \"\"\"\n    Reveals cells based on proximity to mines. When a cell is revealed:\n    1. If it's a mine, it detonates and reveals its neighbors.\n    2. If it's a number, it reveals all adjacent unrevealed cells.\n    3. If it's a zero, it cascades like standard Minesweeper, but also detonates adjacent mines.\n    This strategy heavily punishes incorrect guesses and rewards understanding minefield topology.\n    \"\"\"\n\n    def reveal(self, board: Board, r: int, c: int) -> list[tuple[int, int]]:\n        cell = board.grid[r][c]\n        revealed_cells: list[tuple[int, int]] = []\n\n        if cell.is_mine:\n            board.reveal_mine(r, c)\n            revealed_cells.append((r, c))\n            # Detonate and reveal neighbors\n            for nr, nc in board.neighbors(r, c):\n                if board.in_bounds(nr, nc):\n                    neighbor_cell = board.grid[nr][nc]\n                    if not neighbor_cell.is_revealed and not neighbor_cell.is_flagged:\n                        if neighbor_cell.is_mine:\n                            # Detonate adjacent mine\n                            board.reveal_mine(nr, nc)\n                            revealed_cells.append((nr, nc))\n                        else:\n                            # Reveal non-mine neighbor\n                            neighbor_cell.is_revealed = True\n                            revealed_cells.append((nr, nc))\n            return revealed_cells\n\n        if cell.adjacent_mines > 0:\n            cell.is_revealed = True\n            revealed_cells.append((r, c))\n            # Reveal all adjacent unrevealed cells\n            for nr, nc in board.neighbors(r, c):\n                if board.in_bounds(nr, nc):\n                    neighbor_cell = board.grid[nr][nc]\n                    if not neighbor_cell.is_revealed and not neighbor_cell.is_flagged:\n                        neighbor_cell.is_revealed = True\n                        revealed_cells.append((nr, nc))\n            return revealed_cells\n\n        # Standard cascade for zero-cell, but with mine detonation\n        queue: deque[tuple[int, int]] = deque([(r, c)])\n        visited: set[tuple[int, int]] = {(r, c)}\n\n        while queue:\n            cr, cc = queue.popleft()\n            curr = board.grid[cr][cc]\n            if curr.is_revealed or curr.is_flagged or curr.is_mine:\n                continue\n            \n            curr.is_revealed = True\n            revealed_cells.append((cr, cc))\n\n            if curr.adjacent_mines == 0:\n                for nr, nc in board.neighbors(cr, cc):\n                    if board.in_bounds(nr, nc):\n                        neighbor_cell = board.grid[nr][nc]\n                        if not neighbor_cell.is_revealed and not neighbor_cell.is_flagged:\n                            if neighbor_cell.is_mine:\n                                # Detonate adjacent mine\n                                board.reveal_mine(nr, nc)\n                                revealed_cells.append((nr, nc))\n                            elif (nr, nc) not in visited:\n                                visited.add((nr, nc))\n                                queue.append((nr, nc))\n        \n        return revealed_cells",
+    "code_key": "gen-dc2cb639"
+  },
+  {
+    "config_snapshot": {
+      "rows": 16,
+      "cols": 16,
+      "mine_count": 40,
+      "starting_health": 3,
+      "mine_damage": 2,
+      "safe_first_click": true,
+      "reveal_strategy": "cascade",
+      "flag_limit": null,
+      "mine_behavior": "static",
+      "info_strategy": "distance",
+      "neighborhood": "gen-baa23f47",
+      "win_condition": "standard"
+    },
+    "description": "Reveals only diagonal neighbors, reducing local information density and increasing deduction difficulty.",
+    "fitness": {
+      "per_agent": {
+        "random": {
+          "win_rate": 0.0,
+          "avg_cells_revealed": 113.2,
+          "avg_progress_fraction": 0.5240740740740741,
+          "avg_mines_hit": 2.0,
+          "avg_turns": 8.5,
+          "n_games": 10
+        },
+        "pafg": {
+          "win_rate": 0.0,
+          "avg_cells_revealed": 101.1,
+          "avg_progress_fraction": 0.4680555555555555,
+          "avg_mines_hit": 2.0,
+          "avg_turns": 14.6,
+          "n_games": 10
+        },
+        "neural": {
+          "win_rate": 0.0,
+          "avg_cells_revealed": 72.4,
+          "avg_progress_fraction": 0.3351851851851852,
+          "avg_mines_hit": 2.0,
+          "avg_turns": 8.0,
+          "n_games": 10
+        }
+      },
+      "skill_spread": -0.056018518518518634,
+      "n_games": 10
+    },
+    "parent_snapshot": {
+      "rows": 16,
+      "cols": 16,
+      "mine_count": 40,
+      "starting_health": 3,
+      "mine_damage": 2,
+      "safe_first_click": true,
+      "reveal_strategy": "cascade",
+      "flag_limit": null,
+      "mine_behavior": "static",
+      "info_strategy": "distance",
+      "neighborhood": "moore",
+      "win_condition": "standard"
+    },
+    "generation": 2,
+    "code_kind": "neighborhood",
+    "code_source": "class DiagonalMooreNeighborhood(Neighborhood):\n    \"\"\"Includes only diagonal neighbors from the Moore neighborhood. \n    This reduces local information density, making deductions based on \n    adjacent mine counts more challenging and favoring agents that can \n    infer mine locations from sparser clues.\"\"\"\n\n    _OFFSETS = [(-1, -1), (-1, 1), (1, -1), (1, 1)]\n\n    def offsets(self) -> list[tuple[int, int]]:\n        return self._OFFSETS",
+    "code_key": "gen-baa23f47"
+  },
+  {
+    "config_snapshot": {
+      "rows": 16,
+      "cols": 16,
+      "mine_count": 40,
+      "starting_health": 2,
+      "mine_damage": 1,
+      "safe_first_click": true,
+      "reveal_strategy": "cascade",
+      "flag_limit": null,
+      "mine_behavior": "gen-29ced7ac",
+      "info_strategy": "gen-373c969e",
+      "neighborhood": "moore",
+      "win_condition": "standard"
+    },
+    "description": "Reveals adjacent mine count alongside a directional indicator towards the nearest mine, rewarding both local deduction and spatial reasoning.",
+    "fitness": {
+      "per_agent": {
+        "random": {
+          "win_rate": 0.0,
+          "avg_cells_revealed": 108.5,
+          "avg_progress_fraction": 0.5023148148148148,
+          "avg_mines_hit": 2.0,
+          "avg_turns": 10.6,
+          "n_games": 10
+        },
+        "pafg": {
+          "win_rate": 0.7,
+          "avg_cells_revealed": 208.3,
+          "avg_progress_fraction": 0.9643518518518519,
+          "avg_mines_hit": 0.5,
+          "avg_turns": 194.8,
+          "n_games": 10
+        },
+        "neural": {
+          "win_rate": 0.0,
+          "avg_cells_revealed": 115.2,
+          "avg_progress_fraction": 0.5333333333333333,
+          "avg_mines_hit": 2.0,
+          "avg_turns": 27.0,
+          "n_games": 10
+        }
+      },
+      "skill_spread": 0.46203703703703713,
+      "n_games": 10
+    },
+    "parent_snapshot": {
+      "rows": 16,
+      "cols": 16,
+      "mine_count": 40,
+      "starting_health": 1,
+      "mine_damage": 1,
+      "safe_first_click": true,
+      "reveal_strategy": "cascade",
+      "flag_limit": null,
+      "mine_behavior": "gen-29ced7ac",
+      "info_strategy": "count-mines",
+      "neighborhood": "moore"
+    },
+    "generation": 2,
+    "code_kind": "info_strategy",
+    "code_source": "class DirectionalMineCountInfo(InfoStrategy):\n    \"\"\"\n    Reveals a single digit representing the number of adjacent mines,\n    but also provides a directional arrow indicating the general\n    direction of the NEAREST mine. This combines local count deduction\n    with global spatial awareness.\n    \"\"\"\n\n    def encode(self, board: \"Board\", r: int, c: int) -> str:\n        if not board.grid[r][c].is_revealed:\n            return \"\"\n\n        adjacent_mines = board.grid[r][c].adjacent_mines\n\n        if adjacent_mines == 0:\n            return \"\"\n\n        # Find the closest mine and determine direction\n        closest_mine_dist = float('inf')\n        closest_mine_dir = ''\n\n        for rr in range(board.config.rows):\n            for cc in range(board.config.cols):\n                if board.grid[rr][cc].is_mine:\n                    dist = max(abs(rr - r), abs(cc - c))  # Chebyshev distance\n                    if dist < closest_mine_dist:\n                        closest_mine_dist = dist\n                        # Determine direction\n                        dr = rr - r\n                        dc = cc - c\n                        dirs = []\n                        if dr > 0: dirs.append('\u2193')\n                        if dr < 0: dirs.append('\u2191')\n                        if dc > 0: dirs.append('\u2192')\n                        if dc < 0: dirs.append('\u2190')\n                        closest_mine_dir = ''.join(sorted(dirs))\n\n        # Combine mine count and direction\n        if closest_mine_dir:\n            return f\"{adjacent_mines}{closest_mine_dir}\"\n        else:\n            return str(adjacent_mines)\n",
+    "code_key": "gen-373c969e"
+  },
+  {
+    "config_snapshot": {
+      "rows": 16,
+      "cols": 16,
+      "mine_count": 40,
+      "starting_health": 3,
+      "mine_damage": 3,
+      "safe_first_click": true,
+      "reveal_strategy": "cascade",
+      "flag_limit": null,
+      "mine_behavior": "static",
+      "info_strategy": "distance",
+      "neighborhood": "gen-3d9063b4",
+      "win_condition": "gen-5c117725"
+    },
+    "description": "Win by causing a mine detonation that triggers a chain reaction revealing all other mines.",
+    "fitness": {
+      "per_agent": {
+        "random": {
+          "win_rate": 0.0,
+          "avg_cells_revealed": 76.5,
+          "avg_progress_fraction": 0.3541666666666667,
+          "avg_mines_hit": 1.0,
+          "avg_turns": 4.3,
+          "n_games": 10
+        },
+        "pafg": {
+          "win_rate": 0.0,
+          "avg_cells_revealed": 51.2,
+          "avg_progress_fraction": 0.23703703703703705,
+          "avg_mines_hit": 1.0,
+          "avg_turns": 7.4,
+          "n_games": 10
+        },
+        "neural": {
+          "win_rate": 0.0,
+          "avg_cells_revealed": 78.3,
+          "avg_progress_fraction": 0.3625,
+          "avg_mines_hit": 1.0,
+          "avg_turns": 4.8,
+          "n_games": 10
+        }
+      },
+      "skill_spread": -0.11712962962962964,
+      "n_games": 10
+    },
+    "parent_snapshot": {
+      "rows": 16,
+      "cols": 16,
+      "mine_count": 40,
+      "starting_health": 4,
+      "mine_damage": 2,
+      "safe_first_click": true,
+      "reveal_strategy": "cascade",
+      "flag_limit": null,
+      "mine_behavior": "static",
+      "info_strategy": "distance",
+      "neighborhood": "gen-3d9063b4",
+      "win_condition": "standard"
+    },
+    "generation": 3,
+    "code_kind": "win_condition",
+    "code_source": "class CascadingMineDetonationWin(WinCondition):\n    \"\"\"\n    Wins when a mine detonation triggers a cascade that reveals all mines.\n    This condition heavily rewards understanding mine adjacency and potential\n    chain reactions, making strategic mine placement and careful reveals crucial.\n    \"\"\"\n\n    def evaluate(self, board, game, action):\n        if action[\"hit_mine\"]:\n            # Check if a mine detonation caused a cascade that revealed all mines.\n            # The simplest way to check this is to see if all mines are now revealed.\n            all_mines_revealed = True\n            for r in range(board.config.rows):\n                for c in range(board.config.cols):\n                    if board.grid[r][c].is_mine and not board.grid[r][c].is_revealed:\n                        all_mines_revealed = False\n                        break\n                if not all_mines_revealed:\n                    break\n\n            if all_mines_revealed:\n                return \"won\"\n\n        return None",
+    "code_key": "gen-5c117725"
+  },
+  {
+    "config_snapshot": {
+      "rows": 16,
+      "cols": 16,
+      "mine_count": 40,
+      "starting_health": 1,
+      "mine_damage": 3,
+      "safe_first_click": true,
+      "reveal_strategy": "cascade",
+      "flag_limit": null,
+      "mine_behavior": "gen-05a01802",
+      "info_strategy": "parity",
+      "neighborhood": "moore",
+      "win_condition": "standard"
+    },
+    "description": "Parity-only information with high mine damage and no health buffer forces extremely precise deductions, heavily punishing random guesses.",
+    "fitness": {
+      "per_agent": {
+        "random": {
+          "win_rate": 0.0,
+          "avg_cells_revealed": 83.9,
+          "avg_progress_fraction": 0.38842592592592595,
+          "avg_mines_hit": 1.0,
+          "avg_turns": 6.9,
+          "n_games": 10
+        },
+        "pafg": {
+          "win_rate": 0.8,
+          "avg_cells_revealed": 175.5,
+          "avg_progress_fraction": 0.8125,
+          "avg_mines_hit": 0.2,
+          "avg_turns": 83.3,
+          "n_games": 10
+        },
+        "neural": {
+          "win_rate": 0.0,
+          "avg_cells_revealed": 125.6,
+          "avg_progress_fraction": 0.5814814814814815,
+          "avg_mines_hit": 1.0,
+          "avg_turns": 27.6,
+          "n_games": 10
+        }
+      },
+      "skill_spread": 0.42407407407407405,
+      "n_games": 10
+    },
+    "parent_snapshot": {
+      "rows": 16,
+      "cols": 16,
+      "mine_count": 40,
+      "starting_health": 3,
+      "mine_damage": 1,
+      "safe_first_click": true,
+      "reveal_strategy": "cascade",
+      "flag_limit": null,
+      "mine_behavior": "gen-05a01802",
+      "info_strategy": "count-mines",
+      "neighborhood": "moore",
+      "win_condition": "standard"
+    },
+    "generation": 3,
+    "code_kind": null,
+    "code_source": null,
+    "code_key": null
+  },
+  {
+    "config_snapshot": {
+      "rows": 16,
+      "cols": 16,
+      "mine_count": 40,
+      "starting_health": 7,
+      "mine_damage": 2,
+      "safe_first_click": true,
+      "reveal_strategy": "gen-90654b7a",
+      "flag_limit": null,
+      "mine_behavior": "gen-d4503419",
+      "info_strategy": "direction",
+      "neighborhood": "moore",
+      "win_condition": "standard"
+    },
+    "description": "Reveals contiguous, unrevealed neighbors of a numbered cell if their count matches the cell's mine count, allowing for rapid deduction of safe areas or mine clusters, with increased health and damage to balance risk and reward.",
+    "fitness": {
+      "per_agent": {
+        "random": {
+          "win_rate": 0.0,
+          "avg_cells_revealed": 20.6,
+          "avg_progress_fraction": 0.09537037037037038,
+          "avg_mines_hit": 4.0,
+          "avg_turns": 24.3,
+          "n_games": 10
+        },
+        "pafg": {
+          "win_rate": 0.0,
+          "avg_cells_revealed": 21.4,
+          "avg_progress_fraction": 0.09907407407407406,
+          "avg_mines_hit": 4.0,
+          "avg_turns": 26.3,
+          "n_games": 10
+        },
+        "neural": {
+          "win_rate": 0.0,
+          "avg_cells_revealed": 31.9,
+          "avg_progress_fraction": 0.14768518518518517,
+          "avg_mines_hit": 4.0,
+          "avg_turns": 34.4,
+          "n_games": 10
+        }
+      },
+      "skill_spread": 0.0037037037037036813,
+      "n_games": 10
+    },
+    "parent_snapshot": {
+      "rows": 16,
+      "cols": 16,
+      "mine_count": 40,
+      "starting_health": 4,
+      "mine_damage": 1,
+      "safe_first_click": true,
+      "reveal_strategy": "gen-bda02263",
+      "flag_limit": null,
+      "mine_behavior": "gen-d4503419",
+      "info_strategy": "direction",
+      "neighborhood": "moore",
+      "win_condition": "standard"
+    },
+    "generation": 4,
+    "code_kind": "reveal_strategy",
+    "code_source": "class ProactiveMineDetonator(RevealStrategy):\n    \"\"\"When a cell with N adjacent mines is revealed, and exactly N of its unrevealed neighbors are mines, cause those neighbors to detonate.\"\"\"\n\n    def reveal(self, board: Board, r: int, c: int) -> list[tuple[int, int]]:\n        cell = board.grid[r][c]\n        revealed_cells = []\n\n        if cell.is_revealed or cell.is_flagged:\n            return revealed_cells\n\n        cell.is_revealed = True\n        revealed_cells.append((r, c))\n\n        if cell.adjacent_mines > 0:\n            unrevealed_neighbors = []\n            for nr, nc in board.neighbors(r, c):\n                neighbor_cell = board.grid[nr][nc]\n                if not neighbor_cell.is_revealed and not neighbor_cell.is_flagged:\n                    unrevealed_neighbors.append((nr, nc))\n\n            if len(unrevealed_neighbors) == cell.adjacent_mines:\n                # Check if all unrevealed neighbors are mines\n                all_neighbors_are_mines = True\n                for nr, nc in unrevealed_neighbors:\n                    if not board.grid[nr][nc].is_mine:\n                        all_neighbors_are_mines = False\n                        break\n\n                if all_neighbors_are_mines:\n                    # Detonate these mines\n                    for nr, nc in unrevealed_neighbors:\n                        if board.grid[nr][nc].is_mine and not board.grid[nr][nc].is_revealed:\n                            board.reveal_mine(nr, nc) # This will reveal the mine and detonate neighbors if applicable\n                            revealed_cells.append((nr, nc))\n        return revealed_cells",
+    "code_key": "gen-90654b7a"
+  },
+  {
+    "config_snapshot": {
+      "rows": 16,
+      "cols": 16,
+      "mine_count": 40,
+      "starting_health": 1,
+      "mine_damage": 3,
+      "safe_first_click": true,
+      "reveal_strategy": "single",
+      "flag_limit": null,
+      "mine_behavior": "gen-a53059b3",
+      "info_strategy": "parity",
+      "neighborhood": "moore",
+      "win_condition": "standard"
+    },
+    "description": "Parity-only information with high mine damage and no health buffer forces extremely precise deductions, heavily punishing random guesses.",
+    "fitness": {
+      "per_agent": {
+        "random": {
+          "win_rate": 0.0,
+          "avg_cells_revealed": 8.0,
+          "avg_progress_fraction": 0.037037037037037035,
+          "avg_mines_hit": 1.0,
+          "avg_turns": 9.0,
+          "n_games": 10
+        },
+        "pafg": {
+          "win_rate": 0.0,
+          "avg_cells_revealed": 8.0,
+          "avg_progress_fraction": 0.037037037037037035,
+          "avg_mines_hit": 1.0,
+          "avg_turns": 9.0,
+          "n_games": 10
+        },
+        "neural": {
+          "win_rate": 0.0,
+          "avg_cells_revealed": 26.4,
+          "avg_progress_fraction": 0.12222222222222222,
+          "avg_mines_hit": 1.0,
+          "avg_turns": 27.4,
+          "n_games": 10
+        }
+      },
+      "skill_spread": 0.0,
+      "n_games": 10
+    },
+    "parent_snapshot": {
+      "rows": 16,
+      "cols": 16,
+      "mine_count": 40,
+      "starting_health": 1,
+      "mine_damage": 3,
+      "safe_first_click": true,
+      "reveal_strategy": "single",
+      "flag_limit": null,
+      "mine_behavior": "gen-a53059b3",
+      "info_strategy": "noisy-count",
+      "neighborhood": "moore",
+      "win_condition": "standard"
+    },
+    "generation": 4,
+    "code_kind": null,
+    "code_source": null,
+    "code_key": null
+  },
+  {
+    "config_snapshot": {
+      "rows": 16,
+      "cols": 16,
+      "mine_count": 40,
+      "starting_health": 1,
+      "mine_damage": 3,
+      "safe_first_click": true,
+      "reveal_strategy": "single",
+      "flag_limit": null,
+      "mine_behavior": "gen-a089ef6c",
+      "info_strategy": "parity",
+      "neighborhood": "moore",
+      "win_condition": "standard"
+    },
+    "description": "Parity-only information with single-cell reveals and high mine damage forces extremely precise deductions and punishes random guesses severely.",
+    "fitness": {
+      "per_agent": {
+        "random": {
+          "win_rate": 0.0,
+          "avg_cells_revealed": 4.0,
+          "avg_progress_fraction": 0.018518518518518517,
+          "avg_mines_hit": 1.0,
+          "avg_turns": 5.0,
+          "n_games": 10
+        },
+        "pafg": {
+          "win_rate": 0.0,
+          "avg_cells_revealed": 4.1,
+          "avg_progress_fraction": 0.01898148148148148,
+          "avg_mines_hit": 1.0,
+          "avg_turns": 5.1,
+          "n_games": 10
+        },
+        "neural": {
+          "win_rate": 0.0,
+          "avg_cells_revealed": 12.1,
+          "avg_progress_fraction": 0.056018518518518516,
+          "avg_mines_hit": 1.0,
+          "avg_turns": 13.1,
+          "n_games": 10
+        }
+      },
+      "skill_spread": 0.00046296296296296363,
+      "n_games": 10
+    },
+    "parent_snapshot": {
+      "rows": 16,
+      "cols": 16,
+      "mine_count": 40,
+      "starting_health": 5,
+      "mine_damage": 3,
+      "safe_first_click": true,
+      "reveal_strategy": "cascade",
+      "flag_limit": null,
+      "mine_behavior": "gen-a089ef6c",
+      "info_strategy": "distance",
+      "neighborhood": "moore",
+      "win_condition": "standard"
+    },
+    "generation": 3,
+    "code_kind": null,
+    "code_source": null,
+    "code_key": null
+  },
+  {
+    "config_snapshot": {
+      "rows": 16,
+      "cols": 16,
+      "mine_count": 40,
+      "starting_health": 1,
+      "mine_damage": 4,
+      "safe_first_click": true,
+      "reveal_strategy": "single",
+      "flag_limit": null,
+      "mine_behavior": "gen-a53059b3",
+      "info_strategy": "parity",
+      "neighborhood": "moore",
+      "win_condition": "standard"
+    },
+    "description": "Parity-only information with high mine damage and no health buffer forces extremely precise deductions, heavily punishing random guesses.",
+    "fitness": {
+      "per_agent": {
+        "random": {
+          "win_rate": 0.0,
+          "avg_cells_revealed": 5.9,
+          "avg_progress_fraction": 0.027314814814814816,
+          "avg_mines_hit": 1.0,
+          "avg_turns": 6.9,
+          "n_games": 10
+        },
+        "pafg": {
+          "win_rate": 0.0,
+          "avg_cells_revealed": 5.7,
+          "avg_progress_fraction": 0.02638888888888889,
+          "avg_mines_hit": 1.0,
+          "avg_turns": 6.7,
+          "n_games": 10
+        },
+        "neural": {
+          "win_rate": 0.0,
+          "avg_cells_revealed": 6.8,
+          "avg_progress_fraction": 0.03148148148148148,
+          "avg_mines_hit": 1.0,
+          "avg_turns": 7.8,
+          "n_games": 10
+        }
+      },
+      "skill_spread": -0.0009259259259259273,
+      "n_games": 10
+    },
+    "parent_snapshot": {
+      "rows": 16,
+      "cols": 16,
+      "mine_count": 40,
+      "starting_health": 1,
+      "mine_damage": 3,
+      "safe_first_click": true,
+      "reveal_strategy": "single",
+      "flag_limit": null,
+      "mine_behavior": "gen-a53059b3",
+      "info_strategy": "parity",
+      "neighborhood": "moore",
+      "win_condition": "standard"
+    },
+    "generation": 5,
+    "code_kind": null,
+    "code_source": null,
+    "code_key": null
+  },
+  {
+    "config_snapshot": {
+      "rows": 16,
+      "cols": 16,
+      "mine_count": 40,
+      "starting_health": 4,
+      "mine_damage": 2,
+      "safe_first_click": true,
+      "reveal_strategy": "cascade",
+      "flag_limit": null,
+      "mine_behavior": "static",
+      "info_strategy": "gen-79f8cde2",
+      "neighborhood": "moore",
+      "win_condition": "standard"
+    },
+    "description": "Revealed cells show a binned probability of adjacent neighbors being mines, encouraging probabilistic deduction over deterministic logic.",
+    "fitness": {
+      "per_agent": {
+        "random": {
+          "win_rate": 0.0,
+          "avg_cells_revealed": 86.1,
+          "avg_progress_fraction": 0.3986111111111111,
+          "avg_mines_hit": 2.0,
+          "avg_turns": 10.0,
+          "n_games": 10
+        },
+        "pafg": {
+          "win_rate": 0.9,
+          "avg_cells_revealed": 215.7,
+          "avg_progress_fraction": 0.998611111111111,
+          "avg_mines_hit": 0.2,
+          "avg_turns": 113.7,
+          "n_games": 10
+        },
+        "neural": {
+          "win_rate": 0.0,
+          "avg_cells_revealed": 111.2,
+          "avg_progress_fraction": 0.5148148148148148,
+          "avg_mines_hit": 2.0,
+          "avg_turns": 34.3,
+          "n_games": 10
+        }
+      },
+      "skill_spread": 0.5999999999999999,
+      "n_games": 10
+    },
+    "parent_snapshot": {
+      "rows": 16,
+      "cols": 16,
+      "mine_count": 40,
+      "starting_health": 3,
+      "mine_damage": 2,
+      "safe_first_click": true,
+      "reveal_strategy": "cascade",
+      "flag_limit": null,
+      "mine_behavior": "static",
+      "info_strategy": "distance",
+      "neighborhood": "moore",
+      "win_condition": "standard"
+    },
+    "generation": 2,
+    "code_kind": "info_strategy",
+    "code_source": "class ProbabilisticAdjacencyInfo(InfoStrategy):\n    \"\"\"\n    Revealed cells show the probability of a neighbor being a mine, based on\n    the count of adjacent mines and the number of unrevealed neighbors.\n    This requires players to perform probabilistic reasoning beyond simple counting.\n    \"\"\"\n\n    def __init__(self, seed: int | None = None) -> None:\n        super().__init__(seed)\n        self._rng = random.Random(self._seed)\n\n    def encode(self, board: \"Board\", r: int, c: int) -> str:\n        cell = board.grid[r][c]\n        if not cell.is_revealed or cell.is_mine:\n            return \"\"\n\n        adjacent_mines = cell.adjacent_mines\n        unrevealed_neighbors = 0\n        for nr, nc in board.neighbors(r, c):\n            neighbor_cell = board.grid[nr][nc]\n            if not neighbor_cell.is_revealed and not neighbor_cell.is_flagged:\n                unrevealed_neighbors += 1\n\n        if unrevealed_neighbors == 0:\n            return \"\"\n\n        # Calculate probability: min(adjacent_mines / unrevealed_neighbors, 1.0)\n        # Capped at 9 for display purposes, or a small value if no mines found.\n        probability = min(adjacent_mines / unrevealed_neighbors, 1.0) if unrevealed_neighbors > 0 else 0.0\n\n        # Display as a single digit, representing a binned probability\n        # 0: 0-10%, 1: 11-20%, ..., 9: 90-100%\n        display_value = int(min(probability * 10, 9))\n\n        return str(display_value)",
+    "code_key": "gen-79f8cde2"
+  },
+  {
+    "config_snapshot": {
+      "rows": 16,
+      "cols": 16,
+      "mine_count": 40,
+      "starting_health": 1,
+      "mine_damage": 3,
+      "safe_first_click": true,
+      "reveal_strategy": "cascade",
+      "flag_limit": null,
+      "mine_behavior": "static",
+      "info_strategy": "parity",
+      "neighborhood": "moore",
+      "win_condition": "standard"
+    },
+    "description": "Parity-only information with no health buffer and high mine damage forces extremely precise deductions and punishes random guesses severely.",
+    "fitness": {
+      "per_agent": {
+        "random": {
+          "win_rate": 0.0,
+          "avg_cells_revealed": 86.0,
+          "avg_progress_fraction": 0.39814814814814814,
+          "avg_mines_hit": 1.0,
+          "avg_turns": 6.8,
+          "n_games": 10
+        },
+        "pafg": {
+          "win_rate": 1.0,
+          "avg_cells_revealed": 216.0,
+          "avg_progress_fraction": 1.0,
+          "avg_mines_hit": 0.0,
+          "avg_turns": 116.1,
+          "n_games": 10
+        },
+        "neural": {
+          "win_rate": 0.0,
+          "avg_cells_revealed": 104.1,
+          "avg_progress_fraction": 0.4819444444444444,
+          "avg_mines_hit": 1.0,
+          "avg_turns": 17.8,
+          "n_games": 10
+        }
+      },
+      "skill_spread": 0.6018518518518519,
+      "n_games": 10
+    },
+    "parent_snapshot": {
+      "rows": 16,
+      "cols": 16,
+      "mine_count": 40,
+      "starting_health": 2,
+      "mine_damage": 2,
+      "safe_first_click": true,
+      "reveal_strategy": "cascade",
+      "flag_limit": null,
+      "mine_behavior": "static",
+      "info_strategy": "distance",
+      "neighborhood": "moore",
+      "win_condition": "standard"
+    },
+    "generation": 2,
+    "code_kind": null,
+    "code_source": null,
+    "code_key": null
+  },
+  {
+    "config_snapshot": {
+      "rows": 16,
+      "cols": 16,
+      "mine_count": 40,
+      "starting_health": 2,
+      "mine_damage": 1,
+      "safe_first_click": true,
+      "reveal_strategy": "gen-f33c8871",
+      "flag_limit": null,
+      "mine_behavior": "gen-29ced7ac",
+      "info_strategy": "count-mines",
+      "neighborhood": "moore",
+      "win_condition": "standard"
+    },
+    "description": "Cascades reveals only from cells whose number exactly matches their unrevealed neighbors, rewarding precise local deduction.",
+    "fitness": {
+      "per_agent": {
+        "random": {
+          "win_rate": 0.0,
+          "avg_cells_revealed": 81.2,
+          "avg_progress_fraction": 0.37592592592592594,
+          "avg_mines_hit": 2.0,
+          "avg_turns": 10.8,
+          "n_games": 10
+        },
+        "pafg": {
+          "win_rate": 0.9,
+          "avg_cells_revealed": 195.9,
+          "avg_progress_fraction": 0.9069444444444444,
+          "avg_mines_hit": 0.2,
+          "avg_turns": 95.5,
+          "n_games": 10
+        },
+        "neural": {
+          "win_rate": 0.0,
+          "avg_cells_revealed": 120.6,
+          "avg_progress_fraction": 0.5583333333333333,
+          "avg_mines_hit": 2.0,
+          "avg_turns": 27.0,
+          "n_games": 10
+        }
+      },
+      "skill_spread": 0.5310185185185186,
+      "n_games": 10
+    },
+    "parent_snapshot": {
+      "rows": 16,
+      "cols": 16,
+      "mine_count": 40,
+      "starting_health": 1,
+      "mine_damage": 1,
+      "safe_first_click": true,
+      "reveal_strategy": "cascade",
+      "flag_limit": null,
+      "mine_behavior": "gen-29ced7ac",
+      "info_strategy": "count-mines",
+      "neighborhood": "moore"
+    },
+    "generation": 2,
+    "code_kind": "reveal_strategy",
+    "code_source": "class ConditionalCascadeReveal(RevealStrategy):\n    \"\"\"\n    Standard minesweeper cascade, but only for cells with a numbered value equal to \n    the count of their unrevealed neighbors. This rewards precise local deduction \n    and can quickly reveal large safe areas.\n    \"\"\"\n\n    def reveal(self, board: Board, r: int, c: int) -> list[tuple[int, int]]:\n        cell = board.grid[r][c]\n        if cell.is_revealed or cell.is_flagged or cell.is_mine:\n            return []\n\n        # Count unrevealed neighbors\n        unrevealed_neighbors_count = 0\n        for nr, nc in board.neighbors(r, c):\n            neighbor_cell = board.grid[nr][nc]\n            if not neighbor_cell.is_revealed and not neighbor_cell.is_flagged:\n                unrevealed_neighbors_count += 1\n\n        # Only cascade if the cell's number matches its unrevealed neighbors\n        if cell.adjacent_mines > 0 and cell.adjacent_mines != unrevealed_neighbors_count:\n            cell.is_revealed = True\n            return [(r, c)]\n\n        # Proceed with standard cascade logic if the condition is met\n        queue: deque[tuple[int, int]] = deque([(r, c)])\n        visited: set[tuple[int, int]] = {(r, c)}\n        revealed: list[tuple[int, int]] = []\n\n        while queue:\n            cr, cc = queue.popleft()\n            curr = board.grid[cr][cc]\n            if curr.is_revealed or curr.is_flagged or curr.is_mine:\n                continue\n            curr.is_revealed = True\n            revealed.append((cr, cc))\n            \n            # Count unrevealed neighbors for the current cell\n            current_unrevealed_neighbors_count = 0\n            for nr, nc in board.neighbors(cr, cc):\n                neighbor_cell = board.grid[nr][nc]\n                if not neighbor_cell.is_revealed and not neighbor_cell.is_flagged:\n                    current_unrevealed_neighbors_count += 1\n\n            # Cascade only if the condition is met for the current cell, or if it's a zero\n            if curr.adjacent_mines == 0 or (curr.adjacent_mines > 0 and curr.adjacent_mines == current_unrevealed_neighbors_count):\n                for nr, nc in board.neighbors(cr, cc):\n                    if (nr, nc) not in visited:\n                        visited.add((nr, nc))\n                        queue.append((nr, nc))\n        return revealed",
+    "code_key": "gen-f33c8871"
+  },
+  {
+    "config_snapshot": {
+      "rows": 16,
+      "cols": 16,
+      "mine_count": 40,
+      "starting_health": 1,
+      "mine_damage": 4,
+      "safe_first_click": true,
+      "reveal_strategy": "single",
+      "flag_limit": null,
+      "mine_behavior": "static",
+      "info_strategy": "parity",
+      "neighborhood": "moore",
+      "win_condition": "standard"
+    },
+    "description": "Single-cell reveals with parity-only information, high mine damage, and no health buffer force extremely precise deductions and severely punish random guesses.",
+    "fitness": {
+      "per_agent": {
+        "random": {
+          "win_rate": 0.0,
+          "avg_cells_revealed": 6.9,
+          "avg_progress_fraction": 0.03194444444444445,
+          "avg_mines_hit": 1.0,
+          "avg_turns": 7.9,
+          "n_games": 10
+        },
+        "pafg": {
+          "win_rate": 0.0,
+          "avg_cells_revealed": 8.1,
+          "avg_progress_fraction": 0.0375,
+          "avg_mines_hit": 1.0,
+          "avg_turns": 9.3,
+          "n_games": 10
+        },
+        "neural": {
+          "win_rate": 0.0,
+          "avg_cells_revealed": 23.6,
+          "avg_progress_fraction": 0.10925925925925926,
+          "avg_mines_hit": 1.0,
+          "avg_turns": 24.6,
+          "n_games": 10
+        }
+      },
+      "skill_spread": 0.00555555555555555,
+      "n_games": 10
+    },
+    "parent_snapshot": {
+      "rows": 16,
+      "cols": 16,
+      "mine_count": 40,
+      "starting_health": 1,
+      "mine_damage": 3,
+      "safe_first_click": true,
+      "reveal_strategy": "gen-bda02263",
+      "flag_limit": null,
+      "mine_behavior": "static",
+      "info_strategy": "direction",
+      "neighborhood": "moore",
+      "win_condition": "standard"
+    },
+    "generation": 3,
+    "code_kind": null,
+    "code_source": null,
+    "code_key": null
+  },
+  {
+    "config_snapshot": {
+      "rows": 16,
+      "cols": 16,
+      "mine_count": 40,
+      "starting_health": 2,
+      "mine_damage": 1,
+      "safe_first_click": true,
+      "reveal_strategy": "gen-bda02263",
+      "flag_limit": null,
+      "mine_behavior": "static",
+      "info_strategy": "count-mines",
+      "neighborhood": "gen-22d89a75",
+      "win_condition": "standard"
+    },
+    "description": "Provides hexagonal grid connectivity, increasing the number of potential neighbors and thus local information density.",
+    "fitness": {
+      "per_agent": {
+        "random": {
+          "win_rate": 0.0,
+          "avg_cells_revealed": 77.4,
+          "avg_progress_fraction": 0.35833333333333334,
+          "avg_mines_hit": 2.0,
+          "avg_turns": 23.1,
+          "n_games": 10
+        },
+        "pafg": {
+          "win_rate": 0.0,
+          "avg_cells_revealed": 60.2,
+          "avg_progress_fraction": 0.27870370370370373,
+          "avg_mines_hit": 2.0,
+          "avg_turns": 29.4,
+          "n_games": 10
+        },
+        "neural": {
+          "win_rate": 0.0,
+          "avg_cells_revealed": 48.1,
+          "avg_progress_fraction": 0.22268518518518518,
+          "avg_mines_hit": 2.0,
+          "avg_turns": 17.0,
+          "n_games": 10
+        }
+      },
+      "skill_spread": -0.0796296296296296,
+      "n_games": 10
+    },
+    "parent_snapshot": {
+      "rows": 16,
+      "cols": 16,
+      "mine_count": 40,
+      "starting_health": 2,
+      "mine_damage": 1,
+      "safe_first_click": true,
+      "reveal_strategy": "gen-bda02263",
+      "flag_limit": null,
+      "mine_behavior": "static",
+      "info_strategy": "count-mines",
+      "neighborhood": "moore",
+      "win_condition": "standard"
+    },
+    "generation": 2,
+    "code_kind": "neighborhood",
+    "code_source": "class HexagonalNeighborhood(Neighborhood):\n    \"\"\"Hexagonal grid connectivity. Increases neighbor count and local information density, potentially making deductions easier or harder based on mine placement.\"\"\"\n\n    _OFFSETS = [\n        (-1, 0), (-1, 1),  # Top-left, Top-right\n        ( 0, -1), ( 0, 1),  # Middle-left, Middle-right\n        ( 1, 0), ( 1, -1)   # Bottom-left, Bottom-right\n    ]\n\n    def offsets(self) -> list[tuple[int, int]]:\n        return self._OFFSETS",
+    "code_key": "gen-22d89a75"
+  },
+  {
+    "config_snapshot": {
+      "rows": 16,
+      "cols": 16,
+      "mine_count": 40,
+      "starting_health": 1,
+      "mine_damage": 3,
+      "safe_first_click": true,
+      "reveal_strategy": "gen-7b6c4b2f",
+      "flag_limit": null,
+      "mine_behavior": "static",
+      "info_strategy": "noisy-count",
+      "neighborhood": "moore",
+      "win_condition": "standard"
+    },
+    "description": "Noisy mine counts with minimal health and high damage create a high-stakes environment where precise deduction is paramount and random guessing is severely punished.",
+    "fitness": {
+      "per_agent": {
+        "random": {
+          "win_rate": 0.0,
+          "avg_cells_revealed": 4.7,
+          "avg_progress_fraction": 0.02175925925925926,
+          "avg_mines_hit": 1.0,
+          "avg_turns": 5.7,
+          "n_games": 10
+        },
+        "pafg": {
+          "win_rate": 0.0,
+          "avg_cells_revealed": 6.9,
+          "avg_progress_fraction": 0.03194444444444445,
+          "avg_mines_hit": 1.0,
+          "avg_turns": 7.9,
+          "n_games": 10
+        },
+        "neural": {
+          "win_rate": 0.0,
+          "avg_cells_revealed": 11.0,
+          "avg_progress_fraction": 0.05092592592592592,
+          "avg_mines_hit": 1.0,
+          "avg_turns": 12.0,
+          "n_games": 10
+        }
+      },
+      "skill_spread": 0.01018518518518519,
+      "n_games": 10
+    },
+    "parent_snapshot": {
+      "rows": 16,
+      "cols": 16,
+      "mine_count": 40,
+      "starting_health": 3,
+      "mine_damage": 2,
+      "safe_first_click": true,
+      "reveal_strategy": "gen-7b6c4b2f",
+      "flag_limit": null,
+      "mine_behavior": "static",
+      "info_strategy": "parity",
+      "neighborhood": "moore",
+      "win_condition": "standard"
+    },
+    "generation": 5,
+    "code_kind": null,
+    "code_source": null,
+    "code_key": null
+  },
+  {
+    "config_snapshot": {
+      "rows": 16,
+      "cols": 16,
+      "mine_count": 40,
+      "starting_health": 3,
+      "mine_damage": 2,
+      "safe_first_click": true,
+      "reveal_strategy": "gen-7b6c4b2f",
+      "flag_limit": null,
+      "mine_behavior": "static",
+      "info_strategy": "gen-08d9c811",
+      "neighborhood": "moore",
+      "win_condition": "standard"
+    },
+    "description": "Revealed cells show a binned probability of adjacent neighbors being mines, encouraging probabilistic deduction over deterministic logic.",
+    "fitness": {
+      "per_agent": {
+        "random": {
+          "win_rate": 0.0,
+          "avg_cells_revealed": 9.8,
+          "avg_progress_fraction": 0.04537037037037037,
+          "avg_mines_hit": 2.0,
+          "avg_turns": 11.8,
+          "n_games": 10
+        },
+        "pafg": {
+          "win_rate": 0.0,
+          "avg_cells_revealed": 8.2,
+          "avg_progress_fraction": 0.03796296296296296,
+          "avg_mines_hit": 2.0,
+          "avg_turns": 10.2,
+          "n_games": 10
+        },
+        "neural": {
+          "win_rate": 0.0,
+          "avg_cells_revealed": 33.6,
+          "avg_progress_fraction": 0.15555555555555556,
+          "avg_mines_hit": 2.0,
+          "avg_turns": 35.5,
+          "n_games": 10
+        }
+      },
+      "skill_spread": -0.007407407407407411,
+      "n_games": 10
+    },
+    "parent_snapshot": {
+      "rows": 16,
+      "cols": 16,
+      "mine_count": 40,
+      "starting_health": 3,
+      "mine_damage": 2,
+      "safe_first_click": true,
+      "reveal_strategy": "gen-7b6c4b2f",
+      "flag_limit": null,
+      "mine_behavior": "static",
+      "info_strategy": "parity",
+      "neighborhood": "moore",
+      "win_condition": "standard"
+    },
+    "generation": 5,
+    "code_kind": "info_strategy",
+    "code_source": "class ProbabilisticNeighborInfo(InfoStrategy):\n    \"\"\"\n    Revealed cells show the binned probability of adjacent neighbors being mines,\n    encouraging probabilistic deduction over deterministic logic.\n    The probability is binned into 4 categories: \"L\" (Low < 25%), \"M\" (Medium 25%-50%),\n    \"H\" (High 50%-75%), and \"V\" (Very High > 75%).\n    \"\"\"\n\n    def __init__(self, seed: int | None = None) -> None:\n        super().__init__(seed)\n        self._random = random.Random(self._seed)\n\n    def encode(self, board: \"Board\", r: int, c: int) -> str:\n        if not board.grid[r][c].is_revealed:\n            return \"\"\n\n        neighbors = board.neighbors(r, c)\n        unrevealed_neighbors = [\n            (nr, nc) for nr, nc in neighbors\n            if board.in_bounds(nr, nc) and not board.grid[nr][nc].is_revealed\n        ]\n\n        if not unrevealed_neighbors:\n            return \"\"\n\n        # Calculate the true adjacent mine count for these unrevealed neighbors\n        # This is a simplification; a true probabilistic approach would factor in\n        # current state of the board and global mine count.\n        # For this implementation, we'll use the true adjacent mine count of the\n        # current cell as a proxy for the 'expected' number of mines in its neighborhood.\n        true_adjacent_mines = board.grid[r][c].adjacent_mines\n\n        # Approximate probability for a single neighbor being a mine.\n        # This is a heuristic. A more complex solver would use Bayesian inference.\n        # We assume uniform distribution of remaining mines among unrevealed cells.\n        remaining_mines = board.config.mine_count - board.get_revealed_mine_count()\n        num_unrevealed_cells = board.config.rows * board.config.cols - board.get_revealed_cell_count()\n\n        if num_unrevealed_cells <= 0:\n            return \"\"\n\n        approx_prob_per_cell = remaining_mines / num_unrevealed_cells\n\n        # Binning the probability for display\n        if approx_prob_per_cell < 0.25:\n            return \"L\"\n        elif approx_prob_per_cell < 0.50:\n            return \"M\"\n        elif approx_prob_per_cell < 0.75:\n            return \"H\"\n        else:\n            return \"V\"",
+    "code_key": "gen-08d9c811"
+  },
+  {
+    "config_snapshot": {
+      "rows": 16,
+      "cols": 16,
+      "mine_count": 40,
+      "starting_health": 1,
+      "mine_damage": 4,
+      "safe_first_click": true,
+      "reveal_strategy": "cascade",
+      "flag_limit": null,
+      "mine_behavior": "static",
+      "info_strategy": "noisy-count",
+      "neighborhood": "moore",
+      "win_condition": "standard"
+    },
+    "description": "Noisy mine counts combined with high mine damage and no health buffer create a high-stakes environment where precise deduction is paramount and random guessing is severely punished.",
+    "fitness": {
+      "per_agent": {
+        "random": {
+          "win_rate": 0.0,
+          "avg_cells_revealed": 46.9,
+          "avg_progress_fraction": 0.21712962962962962,
+          "avg_mines_hit": 1.0,
+          "avg_turns": 2.8,
+          "n_games": 10
+        },
+        "pafg": {
+          "win_rate": 0.6,
+          "avg_cells_revealed": 178.3,
+          "avg_progress_fraction": 0.8254629629629631,
+          "avg_mines_hit": 0.4,
+          "avg_turns": 96.6,
+          "n_games": 10
+        },
+        "neural": {
+          "win_rate": 0.0,
+          "avg_cells_revealed": 96.4,
+          "avg_progress_fraction": 0.4462962962962963,
+          "avg_mines_hit": 1.0,
+          "avg_turns": 17.4,
+          "n_games": 10
+        }
+      },
+      "skill_spread": 0.6083333333333334,
+      "n_games": 10
+    },
+    "parent_snapshot": {
+      "rows": 16,
+      "cols": 16,
+      "mine_count": 40,
+      "starting_health": 3,
+      "mine_damage": 2,
+      "safe_first_click": true,
+      "reveal_strategy": "cascade",
+      "flag_limit": null,
+      "mine_behavior": "static",
+      "info_strategy": "gen-fe9f3ad2",
+      "neighborhood": "moore",
+      "win_condition": "standard"
+    },
+    "generation": 3,
+    "code_kind": null,
+    "code_source": null,
+    "code_key": null
   }
 ]
