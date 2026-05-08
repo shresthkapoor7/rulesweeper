@@ -41,6 +41,7 @@ Top-level files each have a single responsibility. Agents live in the `agents/` 
 | `__init__.py` | `Agent` ABC, `AGENTS` registry, `run_game()`, `evaluate_config()` |
 | `random_agent.py` | `RandomAgent` — reveals random unrevealed cells; baseline agent |
 | `pafg_agent.py` | `PAFGAgent` — four-stage constraint solver (First, Primary, Advanced, Guess) |
+| `pafg_archive_agent.py` | `ArchiveAwarePAFGAgent` (PAFG with hook surface for LLM-tuned subclasses) + the LLM generation/compile/eval pipeline used by the `pafg-llm` panel slot and the standalone `python -m agents.pafg_archive_agent` post-hoc tool |
 | `neural_agent.py` | `NeuralAgent` — CNN-based DQN; includes model (`MinesweeperDQN`), state encoding, replay buffer, target network, and `Trainer` class |
 | `train_neural.py` | CLI training script for the neural agent (`python -m agents.train_neural`) |
 
@@ -113,6 +114,56 @@ flag mines as part of its constraint loop, `NeuralAgent` does not). Under
 `"survival"` they keep clicking and may die before reaching the turn target.
 Fitness signals for `win_condition` mutations therefore lean on the random
 agent until the agents are refactored to consult the configured objective.
+
+### `pafg-llm` — per-mechanic LLM-tuned PAFG
+
+The MORTAR panel accepts a special name `pafg-llm` (opt-in via `--agents`)
+that, instead of resolving against the static `AGENTS` registry, asks the LLM
+to write a `ArchiveAwarePAFGAgent` subclass tailored to the specific mechanic
+being evaluated. Generation happens in `mortar.py:_materialize_panel`,
+immediately before each `evaluate_config_multi` call, via the helpers in
+`agents/pafg_archive_agent.py`:
+
+1. Build a synthetic archive entry from the live `(snapshot, description, code_meta)`.
+2. `generate_agent_candidate` — OpenRouter call (currently
+   `anthropic/claude-haiku-4.5`) returning JSON with `name`, `description`, `code`.
+3. `compile_agent_candidate` — AST validation (no imports, no forbidden
+   names/attrs), exec in a curated namespace, must be exactly one subclass of
+   `ArchiveAwarePAFGAgent`.
+4. The compiled class is dropped into the panel under the slot name
+   `pafg-llm`; `evaluate_config_multi` runs it like any other agent.
+
+On any failure (LLM error, parse fail, validation fail, exec fail) the slot
+is silently dropped for that single evaluation — mortar continues with the
+remaining panel agents, no crash.
+
+**Caching.** Each archive entry gains an optional `pafg_llm_agent` field with
+`{name, description, code}`. On subsequent visits to the same parent (or on
+mortar restart), `_recompile_cached_pafg_llm` reuses the saved source instead
+of paying for another LLM call. If the cached source ever fails to recompile
+(e.g. ABC moved between branches), the cache is dropped and regenerated.
+
+**Cost.** Each iteration that uses `pafg-llm` makes one extra LLM call per
+config that needs evaluating (the mechanic-mutation call still happens
+separately). The default panel `["random", "pafg", "neural"]` does not
+include `pafg-llm`; opt in with
+`python mortar.py --agents random pafg neural pafg-llm`.
+
+**Hook surface for the generated subclass** (defined on
+`ArchiveAwarePAFGAgent`):
+
+- `opening_action(game, grid, rows, cols)` — first move (default `("reveal", 0, 0)`)
+- `neighbor_positions(game, r, c, rows, cols)` — adjacency topology (default delegates to `board.neighbors`)
+- `clue_value(game, grid, r, c)` — what the cell's number means (default `cell.adjacent_mines`)
+- `frontier_cell_score(game, grid, pos, prob_map, mine_set, neighbors_of)` — guess-stage tiebreaker
+- `postprocess_prob_map(game, grid, prob_map, mine_set, neighbors_of)` — last-step probability adjustments
+
+Note that `ArchiveAwarePAFGAgent` already calls `game.board.neighbors()` by
+default, so it is mechanic-aware out of the box for non-Moore neighborhoods.
+The standard `PAFGAgent` uses a hardcoded Moore generator — under
+`neighborhood="knight"` etc. its constraint propagation reads the wrong
+adjacency. This is one reason `pafg-llm` is worth running on
+neighborhood/win-condition mutations even before the LLM-tuned variant kicks in.
 
 ### Driving a game programmatically
 

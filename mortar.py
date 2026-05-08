@@ -20,17 +20,29 @@ import os
 import random
 import re
 import signal
+import sys
 import time
 
 from openai import OpenAI
 
-from agents import AGENTS, evaluate_config_multi
+from agents import AGENTS, evaluate_config
+from agents.pafg_archive_agent import (
+    compile_agent_candidate,
+    generate_agent_candidate,
+    repair_agent_candidate,
+)
 
 
 # Default agent panel — resolved against AGENTS at run time so the panel
 # automatically degrades when optional agents (e.g. neural, which needs torch)
 # aren't installed.
 DEFAULT_AGENTS = ["random", "pafg", "neural"]
+
+# Special panel name: when included, mortar generates a per-mechanic
+# LLM-tuned PAFG subclass before each panel evaluation rather than looking it
+# up in the AGENTS registry. Opt-in only — see `--agents pafg-llm`.
+PAFG_LLM_AGENT_NAME = "pafg-llm"
+_PAFG_LLM_SENTINEL = "<pafg-llm-sentinel>"
 
 
 def _load_dotenv(path: str = ".env") -> None:
@@ -164,7 +176,7 @@ def load_archive(path: str = "archive.json") -> None:
 # timeouts as one failed attempt.
 LLM_TIMEOUT_SECONDS = 60.0
 
-# Per-evaluate_config_multi wall clock. Caps each panel evaluation (parent or
+# Per-panel-evaluation wall clock. Caps each panel evaluation (parent or
 # new-config) via SIGALRM. Triggered when a code mutation produces a behavior
 # that infinite-loops or just makes games extremely slow. Generous enough that
 # legitimate slow evals (e.g. PAFG on a tough board) finish well under it.
@@ -172,7 +184,7 @@ EVAL_TIMEOUT_SECONDS = 90
 
 
 class EvalTimeout(Exception):
-    """Raised when evaluate_config_multi exceeds EVAL_TIMEOUT_SECONDS."""
+    """Raised when a panel evaluation exceeds EVAL_TIMEOUT_SECONDS."""
 
 
 def _evaluate_with_timeout(
@@ -180,11 +192,16 @@ def _evaluate_with_timeout(
     config: GameConfig,
     n_games: int,
     timeout: int = EVAL_TIMEOUT_SECONDS,
-) -> dict:
+) -> tuple[dict, list[str], dict[str, str]]:
     """
-    Wall-clock-bounded panel evaluation. Raises EvalTimeout on overflow.
-    POSIX-only: on platforms without SIGALRM the timeout is silently skipped
-    (matching the smoke-test pattern in code_mutations._run_one_smoke_game).
+    Wall-clock-bounded panel evaluation with per-agent error tolerance.
+
+    Returns (per_agent_results, crashed_agent_names, per_agent_errors).
+    Individual agents that raise during evaluation are logged and excluded
+    from the results — the rest of the panel still reports. The errors dict
+    maps crashed agent names to a "Type: message" string for downstream
+    repair attempts. Raises EvalTimeout if the *total* wall clock exceeds
+    `timeout` (POSIX-only via SIGALRM; no-op elsewhere).
     """
     has_alarm = hasattr(signal, "SIGALRM")
 
@@ -196,7 +213,20 @@ def _evaluate_with_timeout(
         prev_handler = signal.signal(signal.SIGALRM, _on_alarm)
         signal.alarm(timeout)
     try:
-        return evaluate_config_multi(panel, config, n_games=n_games)
+        per_agent: dict = {}
+        crashed: list[str] = []
+        errors: dict[str, str] = {}
+        for name, cls in panel.items():
+            try:
+                per_agent[name] = evaluate_config(cls, config, n_games=n_games)
+            except EvalTimeout:
+                raise
+            except Exception as e:
+                msg = f"{type(e).__name__}: {e}"
+                print(f"  Agent {name!r} crashed during eval ({msg}); dropping from this panel.")
+                crashed.append(name)
+                errors[name] = msg
+        return per_agent, crashed, errors
     finally:
         if has_alarm:
             signal.alarm(0)
@@ -239,7 +269,7 @@ def build_mutation_prompt(
     per_agent = fitness["per_agent"]
     n_games = next(iter(per_agent.values()))["n_games"]
     agent_lines = "\n".join(
-        f"  {name:<7} win={f['win_rate']*100:5.1f}%  progress={f['avg_progress_fraction']*100:5.1f}%"
+        f"  {name:<9} win={f['win_rate']*100:5.1f}%  progress={f['avg_progress_fraction']*100:5.1f}%  turns={f['avg_turns']:5.1f}"
         for name, f in per_agent.items()
     )
     spread_pct = f"{fitness['skill_spread'] * 100:+.1f}%"
@@ -248,12 +278,14 @@ def build_mutation_prompt(
 
 A skilled agent (PAFG constraint solver) should clearly outperform a random agent on these configs. Configs where everyone scores the same are boring — they reward luck, not strategy.
 
+Average turns is the mean number of actions per game — a useful secondary signal, especially for mechanics where progress is bounded or partial wins are common (a skilled agent often takes fewer turns to win, or survives more turns under aggressive mechanics).
+
 Current config:
 {json.dumps(snapshot, indent=2)}
 
 Current fitness ({n_games} games per agent):
 {agent_lines}
-  skill_spread (pafg − random progress): {spread_pct}
+  skill_spread (best non-random agent − random progress): {spread_pct}
 
 Field reference:
 {field_ref}
@@ -451,7 +483,7 @@ def build_code_mutation_prompt(
     per_agent = fitness["per_agent"]
     n_games = next(iter(per_agent.values()))["n_games"]
     agent_lines = "\n".join(
-        f"  {name:<7} win={f['win_rate']*100:5.1f}%  progress={f['avg_progress_fraction']*100:5.1f}%"
+        f"  {name:<9} win={f['win_rate']*100:5.1f}%  progress={f['avg_progress_fraction']*100:5.1f}%  turns={f['avg_turns']:5.1f}"
         for name, f in per_agent.items()
     )
     spread_pct = f"{fitness['skill_spread'] * 100:+.1f}%"
@@ -471,7 +503,7 @@ Parent config:
 
 Parent fitness ({n_games} games per agent):
 {agent_lines}
-  skill_spread (pafg − random progress): {spread_pct}
+  skill_spread (best non-random agent − random progress): {spread_pct}
 
 Already in archive (do not re-create these):
 {archive_summary}
@@ -572,11 +604,16 @@ def parse_code_mutation_response(
 # Mutation loop
 # ---------------------------------------------------------------------------
 
-def _build_panel(agent_names: list[str]) -> dict[str, type]:
+def _build_panel(agent_names: list[str]) -> dict:
     """Resolve agent names against the AGENTS registry. Skip names not present
-    (e.g. 'neural' when torch isn't installed) with a one-line warning."""
-    panel: dict[str, type] = {}
+    (e.g. 'neural' when torch isn't installed) with a one-line warning. The
+    `pafg-llm` slot is stored as a sentinel; `_materialize_panel` swaps in a
+    per-mechanic LLM-generated class right before each evaluation."""
+    panel: dict = {}
     for name in agent_names:
+        if name == PAFG_LLM_AGENT_NAME:
+            panel[name] = _PAFG_LLM_SENTINEL
+            continue
         if name in AGENTS:
             panel[name] = AGENTS[name]
         else:
@@ -586,20 +623,196 @@ def _build_panel(agent_names: list[str]) -> dict[str, type]:
     return panel
 
 
+def _build_pafg_llm_entry(snapshot: dict, description: str, code_meta: dict) -> dict:
+    """Synthesize the entry dict the pafg-llm prompt expects."""
+    return {
+        "config_snapshot": snapshot,
+        "description":     description or "",
+        "generation":      0,
+        "parent_snapshot": None,
+        "code_kind":       code_meta.get("code_kind"),
+        "code_source":     code_meta.get("code_source"),
+        "code_key":        code_meta.get("code_key"),
+    }
+
+
+def _generate_pafg_llm_class(
+    snapshot: dict,
+    description: str,
+    code_meta: dict,
+) -> tuple[type | None, dict | None]:
+    """
+    Generate a fresh per-mechanic pafg-llm subclass via LLM.
+
+    Returns (compiled_class, candidate_dict) on success, (None, None) on
+    failure. Never raises — mortar continues with the rest of the panel.
+    """
+    entry = _build_pafg_llm_entry(snapshot, description, code_meta)
+    try:
+        candidate, _raw = generate_agent_candidate(entry)
+    except Exception as e:
+        print(f"  pafg-llm generation failed ({type(e).__name__}: {e}); dropping slot.")
+        return None, None
+    if candidate is None:
+        print("  pafg-llm response unparseable; dropping slot.")
+        return None, None
+    try:
+        cls = compile_agent_candidate(candidate["code"], candidate["name"])
+    except Exception as e:
+        print(f"  pafg-llm compile failed ({type(e).__name__}: {e}); dropping slot.")
+        return None, None
+    return cls, candidate
+
+
+def _attempt_pafg_llm_repair(
+    snapshot: dict,
+    description: str,
+    code_meta: dict,
+    candidate: dict | None,
+    error: str,
+    config: GameConfig,
+    n_games: int,
+) -> tuple[dict | None, dict | None]:
+    """
+    One-shot repair: ask the LLM to fix a crashing pafg-llm candidate, then
+    re-run just that agent's evaluation.
+
+    Returns (repaired_candidate, stats) on success, (None, None) otherwise.
+    Never raises.
+    """
+    if not candidate:
+        return None, None
+    entry = _build_pafg_llm_entry(snapshot, description, code_meta)
+    print(f"  pafg-llm crashed ({error}); attempting one repair...")
+    try:
+        repaired = repair_agent_candidate(entry, candidate, error)
+    except Exception as e:
+        print(f"  pafg-llm repair LLM call failed ({type(e).__name__}: {e}); dropping slot.")
+        return None, None
+    if not repaired:
+        print("  pafg-llm repair response unparseable; dropping slot.")
+        return None, None
+    try:
+        cls = compile_agent_candidate(repaired["code"], repaired["name"])
+    except Exception as e:
+        print(f"  pafg-llm repair compile failed ({type(e).__name__}: {e}); dropping slot.")
+        return None, None
+    try:
+        stats = evaluate_config(cls, config, n_games=n_games)
+    except Exception as e:
+        print(f"  pafg-llm repair retry crashed ({type(e).__name__}: {e}); dropping slot.")
+        return None, None
+    print("  pafg-llm repair succeeded; merging stats into panel.")
+    return repaired, stats
+
+
+def _recompile_cached_pafg_llm(cached: dict | None) -> type | None:
+    """Recompile a cached pafg-llm agent source. None if missing or invalid."""
+    if not cached:
+        return None
+    name = cached.get("name")
+    code = cached.get("code")
+    if not name or not code:
+        return None
+    try:
+        return compile_agent_candidate(code, name)
+    except Exception as e:
+        print(f"  Cached pafg-llm class {name!r} failed to recompile "
+              f"({type(e).__name__}: {e}); regenerating.")
+        return None
+
+
+def _materialize_panel(
+    panel: dict,
+    snapshot: dict,
+    description: str,
+    code_meta: dict,
+    cached_agent: dict | None = None,
+) -> tuple[dict[str, type], dict | None]:
+    """
+    Replace the pafg-llm sentinel with a live class.
+
+    If a cached agent source recompiles cleanly, reuse it (no LLM call).
+    Otherwise generate a fresh subclass. On any failure, drop the slot for
+    this evaluation rather than crashing the whole step.
+
+    Returns (live_panel, candidate_dict_to_persist_or_None). The second
+    element is None on cache hit or when pafg-llm is not in the panel.
+    """
+    if PAFG_LLM_AGENT_NAME not in panel:
+        return dict(panel), None
+
+    cached_cls = _recompile_cached_pafg_llm(cached_agent)
+    if cached_cls is not None:
+        live_panel = {
+            name: (cached_cls if value is _PAFG_LLM_SENTINEL else value)
+            for name, value in panel.items()
+        }
+        return live_panel, None
+
+    cls, candidate = _generate_pafg_llm_class(snapshot, description, code_meta)
+    if cls is None:
+        live_panel = {
+            name: value for name, value in panel.items()
+            if value is not _PAFG_LLM_SENTINEL
+        }
+        return live_panel, None
+
+    live_panel = {
+        name: (cls if value is _PAFG_LLM_SENTINEL else value)
+        for name, value in panel.items()
+    }
+    return live_panel, candidate
+
+
 def _multi_fitness(per_agent: dict[str, dict]) -> dict:
-    """Build the archive `fitness` dict from per-agent eval results."""
+    """Build the archive `fitness` dict from per-agent eval results.
+
+    `skill_spread` is the gap between the best-performing non-random agent and
+    the random baseline. This generalizes the original pafg-vs-random spread to
+    panels that include other skilled agents (neural, pafg-llm).
+    """
     random_pf = per_agent.get("random", {}).get("avg_progress_fraction", 0.0)
-    pafg_pf = per_agent.get("pafg", {}).get("avg_progress_fraction", 0.0)
+    non_random_pfs = [
+        f.get("avg_progress_fraction", 0.0)
+        for name, f in per_agent.items()
+        if name != "random"
+    ]
+    best_skill_pf = max(non_random_pfs) if non_random_pfs else 0.0
     return {
         "per_agent":    per_agent,
-        "skill_spread": pafg_pf - random_pf,
+        "skill_spread": best_skill_pf - random_pf,
         "n_games":      next(iter(per_agent.values()))["n_games"],
     }
 
 
+# ---- Output formatting (ANSI color, gated on isatty) ----
+
+_USE_COLOR = sys.stdout.isatty()
+_C_RESET   = "\033[0m"  if _USE_COLOR else ""
+_C_BOLD    = "\033[1m"  if _USE_COLOR else ""
+_C_DIM     = "\033[2m"  if _USE_COLOR else ""
+_C_GREEN   = "\033[32m" if _USE_COLOR else ""
+_C_YELLOW  = "\033[33m" if _USE_COLOR else ""
+_C_CYAN    = "\033[36m" if _USE_COLOR else ""
+
+
+def _tag(label: str, color: str) -> str:
+    return f"{color}{_C_BOLD}[{label}]{_C_RESET}"
+
+
+_TAG_ACCEPTED = _tag("ACCEPTED", _C_GREEN)
+_TAG_REJECTED = _tag("REJECTED", _C_YELLOW)
+_TAG_SKIPPED  = _tag("SKIPPED",  _C_DIM)
+
+
 def _format_per_agent(per_agent: dict[str, dict]) -> str:
-    return "  ".join(
-        f"{name}: win={f['win_rate']*100:.1f}% prog={f['avg_progress_fraction']*100:.1f}%"
+    """Aligned per-agent stats, one row per agent."""
+    if not per_agent:
+        return ""
+    name_w = max(len(name) for name in per_agent)
+    return "\n".join(
+        f"      {name:<{name_w}}  win {f['win_rate']*100:5.1f}%   prog {f['avg_progress_fraction']*100:5.1f}%   turns {f['avg_turns']:5.1f}"
         for name, f in per_agent.items()
     )
 
@@ -626,18 +839,56 @@ def run_mortar_step(
     # Lazy: evaluate the parent if it's never been measured.
     fitness = base_entry.get("fitness")
     if fitness is None or "per_agent" not in fitness:
+        parent_code_meta = {
+            k: base_entry.get(k) for k in ("code_kind", "code_source", "code_key")
+        }
+        live_panel, generated_agent = _materialize_panel(
+            panel,
+            snapshot,
+            base_entry.get("description", ""),
+            parent_code_meta,
+            cached_agent=base_entry.get("pafg_llm_agent"),
+        )
+        if generated_agent is not None:
+            base_entry["pafg_llm_agent"] = generated_agent
+
         print("  Evaluating base config across agent panel...")
         try:
-            per_agent = _evaluate_with_timeout(panel, base_config, n_games=n_games)
+            per_agent, crashed, errors = _evaluate_with_timeout(
+                live_panel, base_config, n_games=n_games
+            )
         except EvalTimeout as e:
-            print(f"  Skipped: parent eval timed out ({e})")
+            print(f"  {_TAG_SKIPPED} parent eval timed out ({e})")
             return None
         except Exception as e:
-            print(f"  Skipped: parent eval crashed ({type(e).__name__}: {e})")
+            print(f"  {_TAG_SKIPPED} parent eval crashed ({type(e).__name__}: {e})")
+            return None
+        if PAFG_LLM_AGENT_NAME in crashed:
+            crashed_candidate = (
+                generated_agent if generated_agent is not None
+                else base_entry.get("pafg_llm_agent")
+            )
+            repaired, repaired_stats = _attempt_pafg_llm_repair(
+                snapshot,
+                base_entry.get("description", ""),
+                parent_code_meta,
+                crashed_candidate,
+                errors.get(PAFG_LLM_AGENT_NAME, "unknown"),
+                base_config,
+                n_games,
+            )
+            if repaired_stats is not None:
+                per_agent[PAFG_LLM_AGENT_NAME] = repaired_stats
+                crashed.remove(PAFG_LLM_AGENT_NAME)
+                base_entry["pafg_llm_agent"] = repaired
+            else:
+                base_entry.pop("pafg_llm_agent", None)
+        if not per_agent:
+            print(f"  {_TAG_SKIPPED} every agent in the panel crashed")
             return None
         fitness = _multi_fitness(per_agent)
         base_entry["fitness"] = fitness
-        print(f"    {_format_per_agent(per_agent)}")
+        print(_format_per_agent(per_agent))
 
     if mode == "code":
         if code_kind not in KIND_SPEC:
@@ -666,7 +917,7 @@ def run_mortar_step(
 
         try:
             response = client.chat.completions.create(
-                model="google/gemini-2.5-flash-lite",
+                model="anthropic/claude-sonnet-4.6",
                 messages=[{"role": "user", "content": prompt}],
                 max_tokens=max_tokens,
                 temperature=temperature,
@@ -711,51 +962,68 @@ def run_mortar_step(
         return None
 
     if description:
-        print(f"  Testing: {description}")
+        print(f"  {_C_CYAN}Testing:{_C_RESET} {description}")
 
-    # Evaluate the new config with the full panel
+    # Evaluate the new config with the full panel. For pafg-llm we generate
+    # a fresh per-mechanic subclass before evaluating.
+    new_snapshot = dataclasses.asdict(new_config)
+    live_panel, generated_agent = _materialize_panel(
+        panel, new_snapshot, description, code_meta,
+    )
     try:
-        per_agent = _evaluate_with_timeout(panel, new_config, n_games=n_games)
+        per_agent, crashed, errors = _evaluate_with_timeout(
+            live_panel, new_config, n_games=n_games
+        )
     except EvalTimeout as e:
-        print(f"  Rejected: new-config eval timed out ({e})")
+        print(f"  {_TAG_REJECTED} eval timed out ({e})")
         return None
     except Exception as e:
         # Generated mechanic crashed at runtime — smoke test missed it.
         # Reject the mutation and continue the loop.
-        print(f"  Rejected: new-config eval crashed ({type(e).__name__}: {e})")
+        print(f"  {_TAG_REJECTED} eval crashed ({type(e).__name__}: {e})")
+        return None
+    if PAFG_LLM_AGENT_NAME in crashed:
+        repaired, repaired_stats = _attempt_pafg_llm_repair(
+            new_snapshot,
+            description,
+            code_meta,
+            generated_agent,
+            errors.get(PAFG_LLM_AGENT_NAME, "unknown"),
+            new_config,
+            n_games,
+        )
+        if repaired_stats is not None:
+            per_agent[PAFG_LLM_AGENT_NAME] = repaired_stats
+            crashed.remove(PAFG_LLM_AGENT_NAME)
+            generated_agent = repaired
+        else:
+            generated_agent = None
+    if not per_agent:
+        print(f"  {_TAG_REJECTED} every agent in the panel crashed on this config")
         return None
     new_fitness = _multi_fitness(per_agent)
-    new_snapshot = dataclasses.asdict(new_config)
 
-    print(f"  {_format_per_agent(per_agent)}")
+    print(_format_per_agent(per_agent))
 
-    # Admission criteria:
-    # 1. Playable by a skilled agent — PAFG progress in [0.05, 0.95]
-    # 2. Skill matters — pafg progress at least 0.10 above random
-    pafg_pf = per_agent.get("pafg", {}).get("avg_progress_fraction", 0.0)
+    # Admission criterion: at least one skilled agent must clear the random
+    # baseline by `spread_threshold`. Trivially-easy and trivially-hard configs
+    # are both kept — the only thing that disqualifies a config is "no agent
+    # outperforms random."
     spread = new_fitness["skill_spread"]
+    spread_threshold = 0.10
 
-    if pafg_pf < 0.05:
-        msg = f"PAFG progress too low ({pafg_pf:.3f}) — config is nearly unplayable"
+    if spread < spread_threshold:
+        msg = (
+            f"skill spread too small ({spread:+.3f}) — "
+            f"no agent in the panel beat random by {spread_threshold:+.2f}"
+        )
         if not admit_all:
-            print(f"  Rejected: {msg}")
+            print(f"  {_TAG_REJECTED} {msg}")
             return None
-        print(f"  [admit-all] {msg}")
-    if pafg_pf > 0.95:
-        msg = f"PAFG progress too high ({pafg_pf:.3f}) — config is trivially easy"
-        if not admit_all:
-            print(f"  Rejected: {msg}")
-            return None
-        print(f"  [admit-all] {msg}")
-    if spread < 0.10:
-        msg = f"skill spread too small ({spread:+.3f}) — skill doesn't matter here"
-        if not admit_all:
-            print(f"  Rejected: {msg}")
-            return None
-        print(f"  [admit-all] {msg}")
+        print(f"  {_C_DIM}[admit-all]{_C_RESET} {msg}")
 
     generation = (base_entry.get("generation") or 0) + 1
-    return {
+    result = {
         "config_snapshot":  new_snapshot,
         "description":      description,
         "fitness":          new_fitness,
@@ -763,6 +1031,9 @@ def run_mortar_step(
         "generation":       generation,
         **code_meta,
     }
+    if generated_agent is not None:
+        result["pafg_llm_agent"] = generated_agent
+    return result
 
 
 _CODE_KINDS = ["mine_behavior", "reveal_strategy", "info_strategy", "neighborhood", "win_condition"]
@@ -824,7 +1095,8 @@ def run_mortar_loop(
 
         iter_mode, code_kind = _resolve_iter_mode(mode)
         kind_label = f"+{code_kind}" if iter_mode == "code" else ""
-        print(f"\n[{i+1}/{n_iterations}] Mutating ({iter_mode}{kind_label}): {desc}")
+        header = f"{_C_BOLD}[{i+1}/{n_iterations}]{_C_RESET} {iter_mode}{kind_label}  parent: {desc}"
+        print(f"\n{header}")
 
         result = run_mortar_step(
             parent_entry, ARCHIVE, panel=panel,
@@ -834,23 +1106,22 @@ def run_mortar_loop(
             admit_all=admit_all,
         )
         if result is None:
-            print("  Skipped.")
+            # run_mortar_step has already printed a tagged reason.
             continue
 
         key = _config_key(result["config_snapshot"])
         if key in ARCHIVE:
-            print("  Duplicate config — skipped.")
+            print(f"  {_TAG_SKIPPED} duplicate config")
             continue
 
         ARCHIVE[key] = result
         accepted += 1
         f = result["fitness"]
         suffix = f"  code:{result['code_key']}" if result.get("code_key") else ""
-        print(f"  Accepted: {result['description']}")
-        print(f"  skill_spread={f['skill_spread']*100:+.1f}%  gen={result['generation']}{suffix}")
+        print(f"  {_TAG_ACCEPTED} skill_spread={f['skill_spread']*100:+.1f}%  gen={result['generation']}{suffix}")
         save_archive(archive_path)
 
-    print(f"\nDone. {accepted}/{n_iterations} configs accepted. Archive size: {len(ARCHIVE)}.")
+    print(f"\n{_C_BOLD}Done.{_C_RESET} {accepted}/{n_iterations} configs accepted. Archive size: {len(ARCHIVE)}.")
     print(f"Archive saved to {archive_path}")
 
 
@@ -871,9 +1142,9 @@ if __name__ == "__main__":
                         "'code' generates new MineBehavior/RevealStrategy classes, "
                         "'mixed' alternates (default: mixed)")
     p.add_argument("--admit-all",  action="store_true",
-                   help="Skip all admission gates (PAFG progress bounds, skill spread); "
-                        "admit every parseable mutation. Use to explore the wild edge of "
-                        "the mechanic space.")
+                   help="Skip the skill-spread admission gate; admit every parseable "
+                        "mutation regardless of whether any agent beats random. Use to "
+                        "explore the wild edge of the mechanic space.")
     args = p.parse_args()
 
     run_mortar_loop(
