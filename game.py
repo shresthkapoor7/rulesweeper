@@ -86,7 +86,14 @@ class MinesweeperGame:
             self.player.take_damage()
         else:
             newly_revealed = self.board.reveal(r, c)
-            self.player.record_reveal(len(newly_revealed))
+            # Defensive count: a generated RevealStrategy may not dedup or may
+            # include mine cells. Count unique safe-cell reveals only so
+            # progress_fraction stays bounded by safe_cells.
+            unique_safe = {
+                (rr, cc) for (rr, cc) in newly_revealed
+                if not self.board.grid[rr][cc].is_mine
+            }
+            self.player.record_reveal(len(unique_safe))
 
         self._check_endgame("reveal", (r, c), hit_mine, newly_revealed)
         self._run_mine_behavior("reveal", (r, c), hit_mine, newly_revealed)

@@ -24,13 +24,14 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
+from agents import Agent, evaluate_config, run_game
 from code_mutations import CodeValidationError, load_archive_file, register_all_from_archive
 from config import GameConfig
-from game import GameState, MinesweeperGame
+from game import MinesweeperGame
 
 
 LLM_TIMEOUT_SECONDS = 60.0
-MODEL_NAME = "anthropic/claude-haiku-4.5"
+MODEL_NAME = "anthropic/claude-sonnet-4.6"
 DEFAULT_DELAY_SECONDS = 10.0
 DEFAULT_OUTPUT_PATH = "pafg_agent_archive.json"
 DEFAULT_MAX_TOKENS = 1800
@@ -81,14 +82,31 @@ Subclass `ArchiveAwarePAFGAgent` and override only these hooks when needed:
   def opening_action(self, game, grid, rows, cols) -> tuple[str, int, int]
   def neighbor_positions(self, game, r, c, rows, cols) -> list[tuple[int, int]]
   def clue_value(self, game, grid, r, c) -> int | None
+  def action_priority(self, game, grid, rows, cols) -> str
   def frontier_cell_score(self, game, grid, pos, prob_map, mine_set, neighbors_of) -> tuple
   def postprocess_prob_map(self, game, grid, prob_map, mine_set, neighbors_of) -> dict
+
+`action_priority` returns one of:
+  "reveal-first" (default) — when both safe cells and known mines are deduced,
+                              reveal the safe cell first. Optimal under the
+                              standard reveal-all-safes objective.
+  "flag-first"             — flag known mines first. Use when the win
+                              condition rewards flagging (e.g. flag-all-mines).
+  "survival"               — if Stage G's best guess has high mine probability,
+                              flag a deduced mine instead of risking a reveal.
+                              Use under survival-style objectives.
+
+Available instance state on `self` (set by ArchiveAwarePAFGAgent.__init__):
+  self._rng — random.Random, seeded from the constructor's `seed` arg.
+              Use this for any randomness; do NOT introduce `self.rng`
+              (no underscore) or call the bare `random` module for stochastic
+              tie-breaks — that defeats reproducibility.
 
 Do not override large internal solver methods like `_stage_p`, `_stage_a`, or `_stage_g`
 unless absolutely necessary. Prefer a class with 1-2 hook overrides."""
 
 
-class ArchiveAwarePAFGAgent:
+class ArchiveAwarePAFGAgent(Agent):
     """
     Self-contained PAFG-style baseline for archive-specific adaptation.
 
@@ -131,6 +149,21 @@ class ArchiveAwarePAFGAgent:
     ) -> tuple[str, int, int]:
         """Opening move hook."""
         return ("reveal", 0, 0)
+
+    def action_priority(
+        self,
+        game: MinesweeperGame,
+        grid,
+        rows: int,
+        cols: int,
+    ) -> str:
+        """
+        Action-ordering hook.
+
+        Returns one of "reveal-first" (default), "flag-first", or "survival".
+        See `_HOOK_SURFACE` for semantics.
+        """
+        return "reveal-first"
 
     def clue_value(
         self,
@@ -229,7 +262,9 @@ class ArchiveAwarePAFGAgent:
         prob_map = self.postprocess_prob_map(
             game, grid, prob_map, mine_set, neighbors_of
         )
-        return self._stage_g(game, grid, rows, cols, neighbors_of, prob_map, mine_set)
+        return self._stage_g(
+            game, grid, rows, cols, neighbors_of, prob_map, mine_set, can_flag
+        )
 
     # ------------------------------------------------------------------
     # Stage P
@@ -272,12 +307,21 @@ class ArchiveAwarePAFGAgent:
                                 mine_set.add(pos)
                                 changed = True
 
-        if mine_set and can_flag:
-            r, c = next(iter(mine_set))
-            return ("flag", r, c), mine_set
-        if safe_set:
-            r, c = next(iter(safe_set))
-            return ("reveal", r, c), mine_set
+        prefer_flag = self.action_priority(game, grid, rows, cols) == "flag-first"
+        if prefer_flag:
+            if mine_set and can_flag:
+                r, c = next(iter(mine_set))
+                return ("flag", r, c), mine_set
+            if safe_set:
+                r, c = next(iter(safe_set))
+                return ("reveal", r, c), mine_set
+        else:
+            if safe_set:
+                r, c = next(iter(safe_set))
+                return ("reveal", r, c), mine_set
+            if mine_set and can_flag:
+                r, c = next(iter(mine_set))
+                return ("flag", r, c), mine_set
         return None, mine_set
 
     # ------------------------------------------------------------------
@@ -361,12 +405,25 @@ class ArchiveAwarePAFGAgent:
                 elif val == 1:
                     forced[j] = 1
 
-        for idx, val in forced.items():
-            r, c = frontier[idx]
-            if val == 0:
-                return ("reveal", r, c), {}
-            if val == 1 and can_flag:
-                return ("flag", r, c), {}
+        prefer_flag = self.action_priority(game, grid, rows, cols) == "flag-first"
+        if prefer_flag:
+            for idx, val in forced.items():
+                if val == 1 and can_flag:
+                    r, c = frontier[idx]
+                    return ("flag", r, c), {}
+            for idx, val in forced.items():
+                if val == 0:
+                    r, c = frontier[idx]
+                    return ("reveal", r, c), {}
+        else:
+            for idx, val in forced.items():
+                if val == 0:
+                    r, c = frontier[idx]
+                    return ("reveal", r, c), {}
+            for idx, val in forced.items():
+                if val == 1 and can_flag:
+                    r, c = frontier[idx]
+                    return ("flag", r, c), {}
 
         components = self._connected_components(frontier, equations, n)
         prob_map: dict[tuple[int, int], float] = {}
@@ -416,6 +473,7 @@ class ArchiveAwarePAFGAgent:
         neighbors_of: dict[tuple[int, int], list[tuple[int, int]]],
         prob_map: dict[tuple[int, int], float],
         mine_set: set[tuple[int, int]],
+        can_flag: bool = True,
     ) -> tuple[str, int, int]:
         unrevealed = [
             (r, c)
@@ -434,6 +492,16 @@ class ArchiveAwarePAFGAgent:
                 game, grid, pos, prob_map, mine_set, neighbors_of
             ),
         )
+
+        if self.action_priority(game, grid, rows, cols) == "survival" and can_flag:
+            best_p = prob_map.get((r, c), 0.5)
+            if best_p > 0.4:
+                unflagged_mines = [
+                    pos for pos in mine_set if not grid[pos[0]][pos[1]].is_flagged
+                ]
+                if unflagged_mines:
+                    mr, mc = unflagged_mines[0]
+                    return ("flag", mr, mc)
         return ("reveal", r, c)
 
     # ------------------------------------------------------------------
@@ -615,6 +683,84 @@ def _get_client() -> OpenAI:
     )
 
 
+_NAMED_MECHANIC_PRIMER: dict[tuple[str, str], str] = {
+    ("info_strategy", "count-flags"):
+        "Cell shows count of FLAGGED neighbors, not mines. cell.adjacent_mines is "
+        "still the true mine count, so the default clue_value remains correct for "
+        "deduction. Players see flag counts in the rendered board.",
+    ("info_strategy", "parity"):
+        "Display shows 'E' / 'O' (even/odd) instead of an integer. cell.adjacent_mines "
+        "is still the true integer count, so the default clue_value is correct. Do not "
+        "decode parity into clue_value — that loses information.",
+    ("info_strategy", "distance"):
+        "Display shows Chebyshev distance to nearest mine on the whole board. "
+        "cell.adjacent_mines is still the true LOCAL adjacent count for the agent.",
+    ("info_strategy", "direction"):
+        "Display shows a compass arrow toward the nearest mine. cell.adjacent_mines "
+        "is still the true local adjacent count for the agent.",
+    ("info_strategy", "noisy-count"):
+        "Displayed clue is true count ±1 with 20% probability per cell (deterministic "
+        "per-cell). cell.adjacent_mines is the true count; the default clue_value "
+        "reads it. Decoding the displayed (noisy) value yields lossy constraints.",
+    ("neighborhood", "von-neumann"):
+        "Adjacency is the 4 orthogonal neighbors only. Each clue carries less "
+        "information than Moore. neighbor_positions already delegates to "
+        "board.neighbors() — do not hardcode offsets.",
+    ("neighborhood", "diagonal"):
+        "Adjacency is the 4 diagonal neighbors only. Topology already delegated.",
+    ("neighborhood", "knight"):
+        "Adjacency is the 8 chess-knight L-moves; cells are non-locally adjacent. "
+        "Topology already delegated; cascade jumps non-locally.",
+    ("neighborhood", "radius-2-moore"):
+        "Adjacency is all 24 cells in a 5x5 box. Clues cover wide areas and "
+        "constraints overlap densely. Topology already delegated.",
+    ("win_condition", "reveal-quota"):
+        "Win when at least half the safe cells are revealed (no need to clear the "
+        "board). Reveals progress the win directly; flagging does not. Default "
+        "action_priority='reveal-first' is correct.",
+    ("win_condition", "flag-all-mines"):
+        "Win requires EVERY mine flagged AND no false flags. Pure reveal cannot win. "
+        "Override action_priority to return 'flag-first' so deduced mines are flagged "
+        "before safe reveals. Never speculatively flag (false flags lose the game).",
+    ("win_condition", "survival"):
+        "Win by surviving N actions. Override action_priority to return 'survival' so "
+        "the agent prefers flagging a deduced mine over a high-probability guess in "
+        "Stage G.",
+    ("mine_behavior", "drifting"):
+        "Each turn, every unflagged mine has a 30% chance to walk into an adjacent "
+        "unrevealed cell. Adjacency numbers update in place; past inferences decay. "
+        "Flagging pins a mine. Prefer flagging deduced mines early to stabilize.",
+    ("mine_behavior", "chain-reaction"):
+        "Hitting one mine triggers BFS damage through every connected unflagged mine "
+        "cluster. The cost of hitting a mine scales with cluster size. In "
+        "frontier_cell_score, weigh mine_probability against suspected cluster size, "
+        "not just probability.",
+    ("reveal_strategy", "single"):
+        "Each reveal uncovers EXACTLY one cell — no cascade. Information per turn "
+        "drops sharply; the default opening_action at (0,0) yields almost nothing. "
+        "Consider opening with a board-center cell or any cell most likely to be "
+        "non-mine, even though no flood-fill follows.",
+}
+
+
+def _named_mechanic_primer(config_snapshot: dict[str, Any]) -> str:
+    notes: list[str] = []
+    for field in (
+        "info_strategy",
+        "neighborhood",
+        "win_condition",
+        "mine_behavior",
+        "reveal_strategy",
+    ):
+        value = config_snapshot.get(field)
+        if not isinstance(value, str) or value.startswith("gen-"):
+            continue
+        note = _NAMED_MECHANIC_PRIMER.get((field, value))
+        if note:
+            notes.append(f"- {field}={value}: {note}")
+    return "\n".join(notes)
+
+
 def _archive_summary_block(entry: dict[str, Any]) -> str:
     config_snapshot = dict(entry["config_snapshot"])
     parent_snapshot = entry.get("parent_snapshot")
@@ -632,6 +778,9 @@ def _archive_summary_block(entry: dict[str, Any]) -> str:
         "config_snapshot:",
         json.dumps(config_snapshot, indent=2),
     ]
+    primer = _named_mechanic_primer(config_snapshot)
+    if primer:
+        lines.extend(["named_mechanic_primer:", primer])
     if parent_snapshot:
         lines.extend(["parent_snapshot:", json.dumps(parent_snapshot, indent=2)])
     if entry.get("code_kind"):
@@ -831,49 +980,68 @@ def compile_agent_candidate(source: str, expected_name: str) -> type[ArchiveAwar
     return cls
 
 
-def run_game(
-    agent,
-    config: GameConfig,
+def _build_repair_prompt(
+    entry: dict[str, Any],
+    candidate: dict[str, Any],
+    error: str,
+) -> str:
+    return f"""Your previous PAFG agent candidate failed during evaluation.
+
+Error:
+{error}
+
+Previous candidate code (class `{candidate.get("name")}`):
+{candidate.get("code")}
+
+Original task context:
+{_archive_summary_block(entry)}
+
+Available game API:
+{_GAME_API_CHEATSHEET}
+
+Allowed adaptation surface:
+{_HOOK_SURFACE}
+
+Repair the candidate. Return JSON ONLY in this schema:
+{{
+  "name": "{candidate.get('name')}",
+  "description": "one sentence about what was fixed",
+  "code": "<full corrected Python source for exactly one subclass of ArchiveAwarePAFGAgent>",
+  "assumptions": []
+}}
+
+Hard constraints:
+- Keep the class name `{candidate.get('name')}` unchanged.
+- Output exactly one Python class.
+- No markdown outside the JSON.
+- No import statements.
+- The class constructor must accept `seed: int | None = None`.
+- The runtime already provides: ArchiveAwarePAFGAgent, GameConfig, MinesweeperGame, Fraction, random, deque.
+- Do not include any comments in the generated code."""
+
+
+def repair_agent_candidate(
+    entry: dict[str, Any],
+    candidate: dict[str, Any],
+    error: str,
     *,
-    seed: int | None = None,
-    max_turns: int = 1000,
-) -> dict[str, Any]:
-    game = MinesweeperGame(config, seed=seed)
-    turns = 0
-    while game.get_state() in (GameState.PENDING, GameState.ACTIVE) and turns < max_turns:
-        action, r, c = agent.choose_action(game)
-        if action == "reveal":
-            game.reveal(r, c)
-        else:
-            game.flag(r, c)
-        turns += 1
-    return {**game.get_player_metrics(), "state": game.get_state().value, "turns": turns}
-
-
-def evaluate_config(
-    agent_class,
-    config: GameConfig,
-    *,
-    n_games: int,
-    base_seed: int = 0,
-) -> dict[str, Any]:
-    safe_cells = config.rows * config.cols - config.mine_count
-    results = []
-    for i in range(n_games):
-        seed = base_seed + i
-        agent = agent_class(seed=seed)
-        results.append(run_game(agent, config, seed=seed))
-
-    wins = sum(1 for r in results if r["state"] == "won")
-    avg_revealed = sum(r["cells_revealed"] for r in results) / n_games
-    return {
-        "win_rate": wins / n_games,
-        "avg_cells_revealed": avg_revealed,
-        "avg_progress_fraction": avg_revealed / max(safe_cells, 1),
-        "avg_mines_hit": sum(r["mines_hit"] for r in results) / n_games,
-        "avg_turns": sum(r["turns"] for r in results) / n_games,
-        "n_games": n_games,
-    }
+    model: str = MODEL_NAME,
+    max_tokens: int = DEFAULT_MAX_TOKENS,
+) -> dict[str, Any] | None:
+    client = _get_client()
+    prompt = _build_repair_prompt(entry, candidate, error)
+    try:
+        response = client.chat.completions.create(
+            model=model,
+            messages=[{"role": "user", "content": prompt}],
+            max_tokens=max_tokens,
+            temperature=0.5,
+            timeout=LLM_TIMEOUT_SECONDS,
+        )
+        text = response.choices[0].message.content
+        return parse_agent_mutation_response(text)
+    except Exception:
+        return None
 
 
 def try_evaluate_agent_candidate(
@@ -882,6 +1050,7 @@ def try_evaluate_agent_candidate(
     *,
     n_games: int,
     base_seed: int = 0,
+    repair_on_error: bool = True,
 ) -> tuple[dict[str, Any], dict[str, Any] | None, str | None]:
     config = _entry_config(entry)
     baseline_stats = evaluate_config(
@@ -890,17 +1059,38 @@ def try_evaluate_agent_candidate(
         n_games=n_games,
         base_seed=base_seed,
     )
-    try:
-        candidate_cls = compile_agent_candidate(candidate["code"], candidate["name"])
-        candidate_stats = evaluate_config(
+
+    def _run(cand: dict[str, Any]) -> dict[str, Any]:
+        candidate_cls = compile_agent_candidate(cand["code"], cand["name"])
+        return evaluate_config(
             candidate_cls,
             config,
             n_games=n_games,
             base_seed=base_seed,
         )
+
+    try:
+        return baseline_stats, _run(candidate), None
     except Exception as e:
-        return baseline_stats, None, f"{type(e).__name__}: {e}"
-    return baseline_stats, candidate_stats, None
+        first_error = f"{type(e).__name__}: {e}"
+
+    if not repair_on_error:
+        return baseline_stats, None, first_error
+
+    print(f"  [repair] candidate failed ({first_error}); attempting one repair...")
+    repaired = repair_agent_candidate(entry, candidate, first_error)
+    if repaired is None:
+        return baseline_stats, None, f"{first_error} | repair LLM call failed"
+
+    candidate.update(repaired)
+    try:
+        return baseline_stats, _run(candidate), None
+    except Exception as e:
+        return (
+            baseline_stats,
+            None,
+            f"{first_error} | repair retry failed: {type(e).__name__}: {e}",
+        )
 
 
 def _process_entry(
@@ -1001,6 +1191,7 @@ def _replay_entry(
         candidate,
         n_games=n_games,
         base_seed=base_seed,
+        repair_on_error=False,
     )
     updated["baseline_stats"] = baseline_stats
     updated["candidate_stats"] = candidate_stats
@@ -1029,7 +1220,7 @@ def main() -> None:
         default=DEFAULT_MAX_TOKENS,
         help=f"Max completion tokens for agent-generation calls (default: {DEFAULT_MAX_TOKENS})",
     )
-    p.add_argument("--games", type=int, default=5, help="Games per agent evaluation")
+    p.add_argument("--games", type=int, default=20, help="Games per agent evaluation")
     p.add_argument("--seed", type=int, default=0, help="Base seed for fair comparison")
     p.add_argument("--out", default=DEFAULT_OUTPUT_PATH, help="Results JSON path")
     p.add_argument(
