@@ -38,6 +38,10 @@ class WinCondition(ABC):
         """
         ...
 
+    def summary(self) -> dict:
+        """Key parameters for this condition. Override on knob-bearing subclasses."""
+        return {}
+
 
 class StandardWin(WinCondition):
     """Canonical: win when every non-mine cell has been revealed."""
@@ -63,6 +67,9 @@ class RevealQuotaWin(WinCondition):
         super().__init__(seed)
         q = quota if quota is not None else self.DEFAULT_QUOTA
         self.quota = max(0.0, min(1.0, q))
+
+    def summary(self) -> dict:
+        return {"quota": self.quota}
 
     def evaluate(self, board, game, action):
         total_safe = board.config.rows * board.config.cols - board.config.mine_count
@@ -112,6 +119,9 @@ class SurvivalWin(WinCondition):
         self.target_turns = (
             target_turns if target_turns is not None else self.DEFAULT_TARGET
         )
+
+    def summary(self) -> dict:
+        return {"target_turns": self.target_turns}
 
     def evaluate(self, board, game, action):
         if game.player.metrics()["moves"] >= self.target_turns:

@@ -1,0 +1,885 @@
+[
+  {
+    "config_snapshot": {
+      "rows": 16,
+      "cols": 16,
+      "mine_count": 40,
+      "starting_health": 1,
+      "mine_damage": 1,
+      "safe_first_click": true,
+      "reveal_strategy": "cascade",
+      "flag_limit": null,
+      "mine_behavior": "static",
+      "info_strategy": "count-mines",
+      "neighborhood": "moore",
+      "win_condition": "standard"
+    },
+    "description": "Canonical 16\u00d716 standard minesweeper",
+    "fitness": {
+      "per_agent": {
+        "random": {
+          "win_rate": 0.0,
+          "avg_cells_revealed": 80.3,
+          "avg_progress_fraction": 0.37175925925925923,
+          "avg_mines_hit": 1.0,
+          "avg_turns": 6.4,
+          "n_games": 10
+        },
+        "pafg": {
+          "win_rate": 0.9,
+          "avg_cells_revealed": 210.8,
+          "avg_progress_fraction": 0.975925925925926,
+          "avg_mines_hit": 0.1,
+          "avg_turns": 112.1,
+          "n_games": 10
+        },
+        "pafg-llm": {
+          "win_rate": 0.8,
+          "avg_cells_revealed": 195.5,
+          "avg_progress_fraction": 0.9050925925925926,
+          "avg_mines_hit": 0.2,
+          "avg_turns": 88.7,
+          "n_games": 10
+        }
+      },
+      "skill_spread": 0.6041666666666667,
+      "n_games": 10
+    },
+    "parent_snapshot": null,
+    "generation": 0,
+    "n_children_attempted": 5,
+    "pafg_llm_agent": {
+      "name": "StandardMinesweeperAgent",
+      "description": "Adapts to canonical 16x16 minesweeper by opening near the center and preferring corners/edges during guesses to maximize cascade potential.",
+      "code": "class StandardMinesweeperAgent(ArchiveAwarePAFGAgent):\n    def __init__(self, seed=None):\n        super().__init__(seed=seed)\n\n    def opening_action(self, game, grid, rows, cols):\n        cr, cc = rows // 2, cols // 2\n        best = None\n        best_dist = float('inf')\n        for r in range(rows):\n            for c in range(cols):\n                cell = grid[r][c]\n                if not cell.is_revealed and not cell.is_flagged:\n                    dist = abs(r - cr) + abs(c - cc)\n                    if dist < best_dist:\n                        best_dist = dist\n                        best = (r, c)\n        if best:\n            return ('reveal', best[0], best[1])\n        return ('reveal', 0, 0)\n\n    def frontier_cell_score(self, game, grid, pos, prob_map, mine_set, neighbors_of):\n        r, c = pos\n        rows = len(grid)\n        cols = len(grid[0]) if rows > 0 else 0\n        p = prob_map.get(pos, 0.5)\n        is_corner = (r in (0, rows - 1)) and (c in (0, cols - 1))\n        is_edge = (r in (0, rows - 1)) or (c in (0, cols - 1))\n        edge_bonus = 0.0\n        if is_corner:\n            edge_bonus = -0.06\n        elif is_edge:\n            edge_bonus = -0.03\n        revealed_neighbors = sum(\n            1 for nr, nc in neighbors_of.get(pos, [])\n            if grid[nr][nc].is_revealed\n        )\n        constraint_bonus = -0.01 * revealed_neighbors\n        return (p + edge_bonus + constraint_bonus, self._rng.random())",
+      "assumptions": [
+        "Opening near the center maximizes cascade spread on a 16x16 board with safe_first_click=true.",
+        "Corners and edges have fewer neighbors so guessing there reduces expected mine exposure; more revealed neighbors means more constraints improving probability estimates."
+      ]
+    },
+    "n_children_admitted": 4
+  },
+  {
+    "config_snapshot": {
+      "rows": 16,
+      "cols": 16,
+      "mine_count": 40,
+      "starting_health": 1,
+      "mine_damage": 1,
+      "safe_first_click": true,
+      "reveal_strategy": "gen-c6c4b83b",
+      "flag_limit": null,
+      "mine_behavior": "static",
+      "info_strategy": "count-mines",
+      "neighborhood": "moore",
+      "win_condition": "standard"
+    },
+    "description": "Reveals cells in expanding concentric rings from the clicked cell, propagating only through zero-adjacent cells at each wave front, giving skilled players clear frontier information to deduce mine locations ring by ring.",
+    "fitness": {
+      "per_agent": {
+        "random": {
+          "win_rate": 0.0,
+          "avg_cells_revealed": 59.8,
+          "avg_progress_fraction": 0.27685185185185185,
+          "avg_mines_hit": 1.0,
+          "avg_turns": 4.0,
+          "n_games": 10
+        },
+        "pafg": {
+          "win_rate": 0.8,
+          "avg_cells_revealed": 194.8,
+          "avg_progress_fraction": 0.9018518518518519,
+          "avg_mines_hit": 0.2,
+          "avg_turns": 106.0,
+          "n_games": 10
+        },
+        "pafg-llm": {
+          "win_rate": 0.7,
+          "avg_cells_revealed": 212.6,
+          "avg_progress_fraction": 0.9842592592592593,
+          "avg_mines_hit": 0.3,
+          "avg_turns": 95.4,
+          "n_games": 10
+        }
+      },
+      "skill_spread": 0.7074074074074075,
+      "n_games": 10
+    },
+    "parent_snapshot": {
+      "rows": 16,
+      "cols": 16,
+      "mine_count": 40,
+      "starting_health": 1,
+      "mine_damage": 1,
+      "safe_first_click": true,
+      "reveal_strategy": "cascade",
+      "flag_limit": null,
+      "mine_behavior": "static",
+      "info_strategy": "count-mines",
+      "neighborhood": "moore",
+      "win_condition": "standard"
+    },
+    "generation": 1,
+    "code_kind": "reveal_strategy",
+    "code_source": "class RippleReveal(RevealStrategy):\n    \"\"\"\n    Ripple reveal: cascades in expanding 'rings' outward from the clicked cell.\n    Each ring is only expanded if ALL cells in the previous ring were safe (non-mine).\n    Zero-adjacent cells in a ring seed the next ring. Numbered cells in a ring are\n    revealed but do NOT propagate unless they border a zero in the same ring pass.\n    This creates a controlled cascade where islands of zeros expand wave-by-wave,\n    giving players clear spatial information about mine density at each frontier.\n    \"\"\"\n\n    def reveal(self, board: Board, r: int, c: int) -> list[tuple[int, int]]:\n        cell = board.grid[r][c]\n        if cell.is_mine or cell.is_revealed or cell.is_flagged:\n            return []\n\n        revealed: list[tuple[int, int]] = []\n        visited: set[tuple[int, int]] = {(r, c)}\n\n        # Reveal the clicked cell\n        cell.is_revealed = True\n        revealed.append((r, c))\n\n        if cell.adjacent_mines > 0:\n            # Numbered cell: reveal only this cell, no cascade\n            return revealed\n\n        # BFS by rings: current frontier are zero-adjacent cells that seed expansion\n        current_ring: list[tuple[int, int]] = [(r, c)]\n\n        while current_ring:\n            next_ring_candidates: list[tuple[int, int]] = []\n\n            # Collect all neighbors of current ring's zero cells\n            for cr, cc in current_ring:\n                for nr, nc in board.neighbors(cr, cc):\n                    if (nr, nc) not in visited:\n                        visited.add((nr, nc))\n                        nb_cell = board.grid[nr][nc]\n                        if not nb_cell.is_mine and not nb_cell.is_flagged and not nb_cell.is_revealed:\n                            next_ring_candidates.append((nr, nc))\n\n            if not next_ring_candidates:\n                break\n\n            # Reveal all candidates in this ring\n            zeros_in_ring: list[tuple[int, int]] = []\n            for nr, nc in next_ring_candidates:\n                nb_cell = board.grid[nr][nc]\n                nb_cell.is_revealed = True\n                revealed.append((nr, nc))\n                if nb_cell.adjacent_mines == 0:\n                    zeros_in_ring.append((nr, nc))\n\n            # Only zero-adjacent cells in this ring propagate to the next ring\n            current_ring = zeros_in_ring\n\n        return revealed\n",
+    "code_key": "gen-c6c4b83b",
+    "pafg_llm_agent": {
+      "name": "RippleRevealPAFGAgent",
+      "description": "Adapts to the ripple/ring reveal mechanic by preferring corner/center opening clicks and biasing frontier guesses toward cells adjacent to already-revealed zero-clue cells, maximizing ring propagation.",
+      "code": "class RippleRevealPAFGAgent(ArchiveAwarePAFGAgent):\n    def __init__(self, seed=None):\n        super().__init__(seed=seed)\n\n    def opening_action(self, game, grid, rows, cols):\n        best = None\n        best_score = -1\n        candidates = []\n        for r in range(rows):\n            for c in range(cols):\n                cell = grid[r][c]\n                if not cell.is_revealed and not cell.is_flagged:\n                    dist_center = abs(r - rows // 2) + abs(c - cols // 2)\n                    score = -dist_center\n                    candidates.append((score, self._rng.random(), r, c))\n        if candidates:\n            candidates.sort(reverse=True)\n            _, _, r, c = candidates[0]\n            return (\"reveal\", r, c)\n        return (\"reveal\", rows // 2, cols // 2)\n\n    def frontier_cell_score(self, game, grid, pos, prob_map, mine_set, neighbors_of):\n        r, c = pos\n        p = prob_map.get(pos, 0.5)\n        zero_revealed_neighbors = sum(\n            1\n            for nr, nc in neighbors_of.get((r, c), [])\n            if grid[nr][nc].is_revealed and grid[nr][nc].adjacent_mines == 0\n        )\n        adjusted_p = p * (0.85 ** zero_revealed_neighbors)\n        return (adjusted_p, -zero_revealed_neighbors, self._rng.random())\n",
+      "assumptions": [
+        "Clicking near the center maximizes the chance of a large initial zero-ring cascade since zeros tend to cluster away from edges.",
+        "Cells adjacent to revealed zero-clue cells are more likely to be part of the next propagating ring and thus safer to guess."
+      ]
+    },
+    "n_children_attempted": 5,
+    "n_children_admitted": 4
+  },
+  {
+    "config_snapshot": {
+      "rows": 16,
+      "cols": 16,
+      "mine_count": 35,
+      "starting_health": 1,
+      "mine_damage": 1,
+      "safe_first_click": true,
+      "reveal_strategy": "cascade",
+      "flag_limit": null,
+      "mine_behavior": "gen-52eefcee",
+      "info_strategy": "count-mines",
+      "neighborhood": "moore",
+      "win_condition": "standard"
+    },
+    "description": "Exposed mines (touching any revealed cell) have a small chance each turn to flee into deep-unknown unrevealed cells, while flagged mines stay pinned \u2014 rewarding skilled players who flag deduced mines quickly before they escape into uncharted territory.",
+    "fitness": {
+      "per_agent": {
+        "random": {
+          "win_rate": 0.0,
+          "avg_cells_revealed": 92.1,
+          "avg_progress_fraction": 0.41674208144796376,
+          "avg_mines_hit": 1.0,
+          "avg_turns": 8.1,
+          "n_games": 10
+        },
+        "pafg": {
+          "win_rate": 0.0,
+          "avg_cells_revealed": 168.7,
+          "avg_progress_fraction": 0.7633484162895927,
+          "avg_mines_hit": 1.0,
+          "avg_turns": 56.2,
+          "n_games": 10
+        },
+        "pafg-llm": {
+          "win_rate": 0.2,
+          "avg_cells_revealed": 207.9,
+          "avg_progress_fraction": 0.9407239819004525,
+          "avg_mines_hit": 0.8,
+          "avg_turns": 67.4,
+          "n_games": 10
+        }
+      },
+      "skill_spread": 0.5239819004524887,
+      "n_games": 10
+    },
+    "parent_snapshot": {
+      "rows": 16,
+      "cols": 16,
+      "mine_count": 40,
+      "starting_health": 1,
+      "mine_damage": 1,
+      "safe_first_click": true,
+      "reveal_strategy": "cascade",
+      "flag_limit": null,
+      "mine_behavior": "static",
+      "info_strategy": "count-mines",
+      "neighborhood": "moore",
+      "win_condition": "standard"
+    },
+    "generation": 1,
+    "code_kind": "mine_behavior",
+    "code_source": "class TelegraphingMines(MineBehavior):\n    \"\"\"\n    After each action, any unrevealed, unflagged mine that is adjacent to at\n    least one revealed cell gets 'telegraphed': its adjacent_mines count on\n    surrounding revealed cells is augmented with a special warning signal.\n    Concretely, every revealed cell neighboring a telegraphed mine has its\n    adjacent_mines value set to the true count (recomputed fresh each turn),\n    and additionally a one-time proximity pulse is applied: if a mine is\n    adjacent to a revealed zero-cell, that mine's own grid value is tagged so\n    skilled players can pinpoint it.\n\n    The real mechanic: after every action, mines that are 'exposed' (touching\n    a revealed cell) have a small chance (expose_drift_prob) to relocate to a\n    non-exposed unrevealed cell, simulating mines that 'flee' from known areas\n    into the unknown. This makes deduction harder at the frontier but rewards\n    players who flag quickly \u2014 flagged mines never flee. Adjacency is\n    recomputed after any moves so numbers stay accurate.\n    \"\"\"\n\n    DEFAULT_FLEE_PROB = 0.18\n\n    def __init__(self, seed=None, flee_prob=None):\n        super().__init__(seed)\n        self.flee_prob = flee_prob if flee_prob is not None else self.DEFAULT_FLEE_PROB\n\n    def summary(self):\n        return {\"flee_prob\": self.flee_prob}\n\n    def on_post_action(self, board, game, action):\n        rows = board.config.rows\n        cols = board.config.cols\n\n        # Build set of unrevealed, non-mine, non-flagged cells (safe havens)\n        # and identify 'exposed' mines (adjacent to at least one revealed cell)\n        exposed_mines = []\n        safe_havens = []\n\n        for r in range(rows):\n            for c in range(cols):\n                cell = board.grid[r][c]\n                if cell.is_mine and not cell.is_flagged and not cell.is_revealed:\n                    # Check if adjacent to any revealed cell\n                    touches_revealed = any(\n                        board.grid[nr][nc].is_revealed\n                        for nr, nc in board.neighbors(r, c)\n                    )\n                    if touches_revealed:\n                        exposed_mines.append((r, c))\n                elif not cell.is_mine and not cell.is_revealed and not cell.is_flagged:\n                    # Check if NOT adjacent to any revealed cell (deep unknown)\n                    touches_revealed = any(\n                        board.grid[nr][nc].is_revealed\n                        for nr, nc in board.neighbors(r, c)\n                    )\n                    if not touches_revealed:\n                        safe_havens.append((r, c))\n\n        if not exposed_mines or not safe_havens:\n            return\n\n        moved = False\n        # Snapshot to avoid re-processing moved mines\n        for src in exposed_mines:\n            if self._rng.random() >= self.flee_prob:\n                continue\n            if not safe_havens:\n                break\n            # Pick a random safe haven far from revealed cells\n            dst = self._rng.choice(safe_havens)\n            if board.move_mine(src, dst):\n                safe_havens.remove(dst)\n                # The old src is now a non-mine unrevealed cell;\n                # check if it qualifies as a new safe haven\n                r, c = src\n                touches_revealed = any(\n                    board.grid[nr][nc].is_revealed\n                    for nr, nc in board.neighbors(r, c)\n                )\n                if not touches_revealed:\n                    safe_havens.append(src)\n                moved = True\n\n        if moved:\n            board.recompute_adjacency()\n",
+    "code_key": "gen-52eefcee",
+    "pafg_llm_agent": {
+      "name": "FleeMinesFlagFirstAgent",
+      "description": "Prioritizes flagging deduced mines immediately before they flee, and penalizes frontier guesses near the revealed boundary where mines are most likely to have already escaped.",
+      "code": "class FleeMinesFlagFirstAgent(ArchiveAwarePAFGAgent):\n    def __init__(self, seed=None):\n        super().__init__(seed)\n\n    def action_priority(self, game, grid, rows, cols):\n        return \"flag-first\"\n\n    def postprocess_prob_map(self, game, grid, prob_map, mine_set, neighbors_of):\n        flee_prob = 0.18\n        try:\n            bs = game.behavior_summary()\n            params = bs.get(\"mine_behavior\", {}).get(\"params\", {})\n            if \"flee_prob\" in params:\n                flee_prob = float(params[\"flee_prob\"])\n        except Exception:\n            pass\n\n        adjusted = {}\n        for pos, p in prob_map.items():\n            r, c = pos\n            cell = game.get_cell(r, c)\n            if cell.is_revealed or cell.is_flagged:\n                adjusted[pos] = p\n                continue\n            touches_revealed = any(\n                game.get_cell(nr, nc).is_revealed\n                for nr, nc in neighbors_of.get(pos, [])\n            )\n            if touches_revealed:\n                adjusted[pos] = p * (1.0 - flee_prob)\n            else:\n                n_exposed_neighbors = sum(\n                    1\n                    for nr, nc in neighbors_of.get(pos, [])\n                    if not game.get_cell(nr, nc).is_revealed\n                    and not game.get_cell(nr, nc).is_flagged\n                    and any(\n                        game.get_cell(nnr, nnc).is_revealed\n                        for nnr, nnc in neighbors_of.get((nr, nc), [])\n                    )\n                )\n                inflow = 1.0 - (1.0 - flee_prob) ** max(n_exposed_neighbors, 1) if n_exposed_neighbors > 0 else 0.0\n                adjusted[pos] = min(1.0, p + (1.0 - p) * inflow * flee_prob * 0.5)\n        return adjusted\n\n    def frontier_cell_score(self, game, grid, pos, prob_map, mine_set, neighbors_of):\n        r, c = pos\n        p = prob_map.get(pos, 0.5)\n        touches_revealed = any(\n            game.get_cell(nr, nc).is_revealed\n            for nr, nc in neighbors_of.get(pos, [])\n        )\n        boundary_penalty = 0.05 if touches_revealed else 0.0\n        return (p + boundary_penalty, self._rng.random())\n",
+      "assumptions": [
+        "Flagging first is the dominant adaptation since flagged mines cannot flee, preventing information loss at the frontier.",
+        "Probability adjustment deflates exposed-cell mine probabilities by flee_prob and slightly inflates deep-unknown cells to reflect mine redistribution over time."
+      ]
+    }
+  },
+  {
+    "config_snapshot": {
+      "rows": 16,
+      "cols": 16,
+      "mine_count": 40,
+      "starting_health": 1,
+      "mine_damage": 1,
+      "safe_first_click": true,
+      "reveal_strategy": "gen-c6c4b83b",
+      "flag_limit": null,
+      "mine_behavior": "static",
+      "info_strategy": "gen-63ea0353",
+      "neighborhood": "moore",
+      "win_condition": "standard"
+    },
+    "description": "Each revealed cell shows the mine count in a 5\u00d75 sector around it rather than its immediate 3\u00d73 neighborhood, forcing skilled players to triangulate mine positions by differencing overlapping large-area sums while random play cannot exploit the broader but noisier signal.",
+    "fitness": {
+      "per_agent": {
+        "random": {
+          "win_rate": 0.0,
+          "avg_cells_revealed": 74.9,
+          "avg_progress_fraction": 0.34675925925925927,
+          "avg_mines_hit": 1.0,
+          "avg_turns": 5.0,
+          "n_games": 10
+        },
+        "pafg": {
+          "win_rate": 0.6,
+          "avg_cells_revealed": 178.7,
+          "avg_progress_fraction": 0.8273148148148147,
+          "avg_mines_hit": 0.4,
+          "avg_turns": 100.7,
+          "n_games": 10
+        },
+        "pafg-llm": {
+          "win_rate": 0.0,
+          "avg_cells_revealed": 102.0,
+          "avg_progress_fraction": 0.4722222222222222,
+          "avg_mines_hit": 1.0,
+          "avg_turns": 5.9,
+          "n_games": 10
+        }
+      },
+      "skill_spread": 0.48055555555555546,
+      "n_games": 10
+    },
+    "parent_snapshot": {
+      "rows": 16,
+      "cols": 16,
+      "mine_count": 40,
+      "starting_health": 1,
+      "mine_damage": 1,
+      "safe_first_click": true,
+      "reveal_strategy": "gen-c6c4b83b",
+      "flag_limit": null,
+      "mine_behavior": "static",
+      "info_strategy": "count-mines",
+      "neighborhood": "moore",
+      "win_condition": "standard"
+    },
+    "generation": 2,
+    "code_kind": "info_strategy",
+    "code_source": "class SectorSumInfo(InfoStrategy):\n    \"\"\"\n    Instead of showing the count of adjacent mines, each revealed cell shows\n    the total mine count in a larger 5x5 'sector' centered on that cell\n    (capped at 9, shown as '9+' equivalent just as '9').\n    The player gets a broader area signal rather than exact neighbor count,\n    requiring skilled deduction to triangulate mine positions by overlapping\n    sector sums \u2014 like a blurry integral rather than a sharp local derivative.\n    Zero is still blank (sector truly empty), small numbers still constrain,\n    but large overlapping numbers require careful subtraction across sectors.\n    \"\"\"\n\n    def encode(self, board, r, c):\n        total = 0\n        rows = board.config.rows\n        cols = board.config.cols\n        for dr in range(-2, 3):\n            for dc in range(-2, 3):\n                if dr == 0 and dc == 0:\n                    continue\n                nr, nc = r + dr, c + dc\n                if 0 <= nr < rows and 0 <= nc < cols:\n                    if board.grid[nr][nc].is_mine:\n                        total += 1\n        if total == 0:\n            return \"\"\n        return str(min(total, 9))\n",
+    "code_key": "gen-63ea0353",
+    "pafg_llm_agent": {
+      "name": "SectorSum5x5Agent",
+      "description": "Overrides clue_value to sum mines in the 5x5 sector around each cell (matching SectorSumInfo encoding), and overrides postprocess_prob_map to down-weight frontier guesses near high-clue cells where mine density is already accounted for across broad overlapping regions.",
+      "code": "class SectorSum5x5Agent(ArchiveAwarePAFGAgent):\n    def __init__(self, seed=None):\n        super().__init__(seed=seed)\n\n    def clue_value(self, game, grid, r, c):\n        cell = grid[r][c]\n        if not cell.is_revealed:\n            return None\n        rows = game.get_config().rows\n        cols = game.get_config().cols\n        total = 0\n        for dr in range(-2, 3):\n            for dc in range(-2, 3):\n                if dr == 0 and dc == 0:\n                    continue\n                nr, nc = r + dr, c + dc\n                if 0 <= nr < rows and 0 <= nc < cols:\n                    if grid[nr][nc].is_mine:\n                        total += 1\n        return total\n\n    def postprocess_prob_map(self, game, grid, prob_map, mine_set, neighbors_of):\n        rows = game.get_config().rows\n        cols = game.get_config().cols\n        sector_pressure = {}\n        for r in range(rows):\n            for c in range(cols):\n                cell = grid[r][c]\n                if not cell.is_revealed:\n                    continue\n                clue = self.clue_value(game, grid, r, c)\n                if clue is None or clue == 0:\n                    continue\n                sector_cells = []\n                for dr in range(-2, 3):\n                    for dc in range(-2, 3):\n                        if dr == 0 and dc == 0:\n                            continue\n                        nr, nc = r + dr, c + dc\n                        if 0 <= nr < rows and 0 <= nc < cols:\n                            sector_cells.append((nr, nc))\n                known_mines = sum(1 for pos in sector_cells if pos in mine_set)\n                unknown = [pos for pos in sector_cells if not grid[pos[0]][pos[1]].is_revealed and pos not in mine_set]\n                remaining = clue - known_mines\n                if len(unknown) > 0 and remaining >= 0:\n                    base_p = remaining / len(unknown)\n                    for pos in unknown:\n                        if pos not in sector_pressure or base_p > sector_pressure[pos]:\n                            sector_pressure[pos] = base_p\n        updated = {}\n        for pos, p in prob_map.items():\n            if pos in sector_pressure:\n                blended = 0.6 * p + 0.4 * sector_pressure[pos]\n                updated[pos] = blended\n            else:\n                updated[pos] = p\n        return updated\n",
+      "assumptions": [
+        "clue_value reads actual mine positions to recompute the 5x5 sector sum, matching SectorSumInfo.encode logic exactly so the solver uses correct constraint values instead of the default 3x3 adjacent_mines count",
+        "postprocess_prob_map blends the standard probability estimate with a sector-pressure estimate derived from overlapping 5x5 clues, improving frontier guesses by triangulating across the broader signal"
+      ]
+    }
+  },
+  {
+    "config_snapshot": {
+      "rows": 16,
+      "cols": 16,
+      "mine_count": 40,
+      "starting_health": 1,
+      "mine_damage": 1,
+      "safe_first_click": true,
+      "reveal_strategy": "gen-58cd28a8",
+      "flag_limit": null,
+      "mine_behavior": "static",
+      "info_strategy": "count-mines",
+      "neighborhood": "moore",
+      "win_condition": "standard"
+    },
+    "description": "Extends ring-by-ring ripple reveal with an automatic deduction bonus: whenever a revealed numbered cell has exactly as many unrevealed neighbors as remaining mines, those mine-neighbors are immediately exposed (shown) so skilled players can see certain mine locations without guessing, while ambiguous frontiers still demand logical deduction.",
+    "fitness": {
+      "per_agent": {
+        "random": {
+          "win_rate": 0.0,
+          "avg_cells_revealed": 65.7,
+          "avg_progress_fraction": 0.3041666666666667,
+          "avg_mines_hit": 1.0,
+          "avg_turns": 4.5,
+          "n_games": 10
+        },
+        "pafg": {
+          "win_rate": 0.0,
+          "avg_cells_revealed": 104.3,
+          "avg_progress_fraction": 0.48287037037037034,
+          "avg_mines_hit": 1.0,
+          "avg_turns": 43.3,
+          "n_games": 10
+        },
+        "pafg-llm": {
+          "win_rate": 0.0,
+          "avg_cells_revealed": 143.6,
+          "avg_progress_fraction": 0.6648148148148147,
+          "avg_mines_hit": 1.0,
+          "avg_turns": 34.3,
+          "n_games": 10
+        }
+      },
+      "skill_spread": 0.36064814814814805,
+      "n_games": 10
+    },
+    "parent_snapshot": {
+      "rows": 16,
+      "cols": 16,
+      "mine_count": 40,
+      "starting_health": 1,
+      "mine_damage": 1,
+      "safe_first_click": true,
+      "reveal_strategy": "gen-c6c4b83b",
+      "flag_limit": null,
+      "mine_behavior": "static",
+      "info_strategy": "count-mines",
+      "neighborhood": "moore",
+      "win_condition": "standard"
+    },
+    "generation": 2,
+    "code_kind": "reveal_strategy",
+    "code_source": "class BidirectionalRippleReveal(RevealStrategy):\n    \"\"\"\n    Extends the ripple/ring mechanic: when a ring is revealed, any cell in that ring\n    whose neighbor-count exactly matches the number of its unrevealed neighbors (i.e.,\n    all unrevealed neighbors are mines) causes those mine-neighbors to be 'exposed' \u2014\n    their positions are marked visually (revealed as mines) so the player can see them.\n    Additionally, cells in a ring that have zero adjacent mines seed the next ring as\n    normal. This gives skilled players an automatic deduction bonus: obvious all-mine\n    borders are surfaced immediately, reducing guessing while still requiring skill for\n    ambiguous frontiers.\n    \"\"\"\n\n    def reveal(self, board: Board, r: int, c: int) -> list[tuple[int, int]]:\n        cell = board.grid[r][c]\n        if cell.is_mine or cell.is_revealed or cell.is_flagged:\n            return []\n\n        revealed: list[tuple[int, int]] = []\n        visited: set[tuple[int, int]] = {(r, c)}\n\n        # Reveal the clicked cell\n        cell.is_revealed = True\n        revealed.append((r, c))\n\n        if cell.adjacent_mines > 0:\n            # Numbered cell: apply deduction bonus then stop\n            self._apply_deduction(board, r, c, revealed)\n            return revealed\n\n        # BFS by rings from zero-adjacent cells\n        current_ring: list[tuple[int, int]] = [(r, c)]\n\n        while current_ring:\n            next_ring_candidates: list[tuple[int, int]] = []\n\n            # Collect all neighbors of current ring's zero cells\n            for cr, cc in current_ring:\n                for nr, nc in board.neighbors(cr, cc):\n                    if (nr, nc) not in visited:\n                        visited.add((nr, nc))\n                        nb_cell = board.grid[nr][nc]\n                        if not nb_cell.is_mine and not nb_cell.is_flagged and not nb_cell.is_revealed:\n                            next_ring_candidates.append((nr, nc))\n\n            if not next_ring_candidates:\n                break\n\n            # Reveal all candidates in this ring\n            zeros_in_ring: list[tuple[int, int]] = []\n            for nr, nc in next_ring_candidates:\n                nb_cell = board.grid[nr][nc]\n                nb_cell.is_revealed = True\n                revealed.append((nr, nc))\n                if nb_cell.adjacent_mines == 0:\n                    zeros_in_ring.append((nr, nc))\n\n            # Apply deduction bonus: for numbered cells in this ring,\n            # if all unrevealed non-flagged neighbors must be mines, expose them\n            for nr, nc in next_ring_candidates:\n                if board.grid[nr][nc].adjacent_mines > 0:\n                    self._apply_deduction(board, nr, nc, revealed)\n\n            # Only zero-adjacent cells propagate\n            current_ring = zeros_in_ring\n\n        return revealed\n\n    def _apply_deduction(self, board: Board, r: int, c: int, revealed: list[tuple[int, int]]) -> None:\n        \"\"\"\n        If the cell at (r,c) has adjacent_mines == number of unrevealed+unflagged neighbors,\n        all those neighbors must be mines. Expose (reveal) them so the player can see their\n        positions, but do NOT flag them automatically \u2014 the player retains agency.\n        This fires only when the deduction is certain (all remaining neighbors are mines).\n        \"\"\"\n        cell = board.grid[r][c]\n        adj = cell.adjacent_mines\n        if adj == 0:\n            return\n\n        neighbors = board.neighbors(r, c)\n        flagged_count = sum(1 for nr, nc in neighbors if board.grid[nr][nc].is_flagged)\n        unrevealed_unflagged = [(nr, nc) for nr, nc in neighbors\n                                if not board.grid[nr][nc].is_revealed\n                                and not board.grid[nr][nc].is_flagged]\n\n        # Only expose if remaining mine count exactly equals unrevealed unflagged count\n        remaining_mines = adj - flagged_count\n        if remaining_mines > 0 and remaining_mines == len(unrevealed_unflagged):\n            for nr, nc in unrevealed_unflagged:\n                nb_cell = board.grid[nr][nc]\n                if nb_cell.is_mine and not nb_cell.is_revealed:\n                    # Expose the mine so the player can see it\n                    board.reveal_mine(nr, nc)\n                    revealed.append((nr, nc))\n",
+    "code_key": "gen-58cd28a8",
+    "pafg_llm_agent": {
+      "name": "DeductionBonusAwarePAFGAgent",
+      "description": "Exploits the mechanic's automatic mine-exposure bonus by treating visually revealed mines as known mines in the probability map, and biases guesses toward cells adjacent to already-exposed mine cells to maximize deduction chain triggers.",
+      "code": "class DeductionBonusAwarePAFGAgent(ArchiveAwarePAFGAgent):\n    def __init__(self, seed=None):\n        super().__init__(seed=seed)\n\n    def postprocess_prob_map(self, game, grid, prob_map, mine_set, neighbors_of):\n        rows = len(grid)\n        cols = len(grid[0]) if rows > 0 else 0\n        exposed_mines = set()\n        for r in range(rows):\n            for c in range(cols):\n                cell = game.get_cell(r, c)\n                if cell.is_revealed and cell.is_mine:\n                    exposed_mines.add((r, c))\n                    mine_set.add((r, c))\n        for pos in exposed_mines:\n            prob_map[pos] = 1.0\n        for r in range(rows):\n            for c in range(cols):\n                cell = game.get_cell(r, c)\n                if not cell.is_revealed and not cell.is_flagged and (r, c) not in mine_set:\n                    neighbors = neighbors_of.get((r, c), [])\n                    exposed_neighbor_count = sum(1 for nb in neighbors if nb in exposed_mines)\n                    if exposed_neighbor_count > 0 and (r, c) in prob_map:\n                        prob_map[(r, c)] = max(0.0, prob_map[(r, c)] - 0.05 * exposed_neighbor_count)\n        return prob_map\n\n    def frontier_cell_score(self, game, grid, pos, prob_map, mine_set, neighbors_of):\n        r, c = pos\n        p = prob_map.get(pos, 0.5)\n        rows = len(grid)\n        cols = len(grid[0]) if rows > 0 else 0\n        neighbors = neighbors_of.get((r, c), [])\n        exposed_mine_neighbors = sum(\n            1 for nr, nc in neighbors\n            if game.get_cell(nr, nc).is_revealed and game.get_cell(nr, nc).is_mine\n        )\n        numbered_neighbors = sum(\n            1 for nr, nc in neighbors\n            if game.get_cell(nr, nc).is_revealed\n            and not game.get_cell(nr, nc).is_mine\n            and game.get_cell(nr, nc).adjacent_mines > 0\n        )\n        bonus = -0.08 * exposed_mine_neighbors - 0.03 * numbered_neighbors\n        adjusted_p = max(0.0, p + bonus)\n        return (adjusted_p, -exposed_mine_neighbors, self._rng.random())\n",
+      "assumptions": [
+        "Revealed mine cells (exposed by the deduction bonus mechanic) are treated as confirmed mines and added to mine_set so the solver can use them for constraint propagation.",
+        "Frontier cells adjacent to exposed mines are scored lower (preferred for reveal) since revealing them is more likely to trigger further deduction bonus chains."
+      ]
+    }
+  },
+  {
+    "config_snapshot": {
+      "rows": 16,
+      "cols": 16,
+      "mine_count": 40,
+      "starting_health": 3,
+      "mine_damage": 1,
+      "safe_first_click": true,
+      "reveal_strategy": "gen-c6c4b83b",
+      "flag_limit": null,
+      "mine_behavior": "chain-reaction",
+      "info_strategy": "count-mines",
+      "neighborhood": "moore",
+      "win_condition": "standard"
+    },
+    "description": "Hitting any mine triggers a cascade explosion through all adjacent mines, but players start with 3 lives \u2014 skilled solvers who deduce mine clusters before clicking survive the chain reactions while random agents quickly lose all health to explosive chain detonations.",
+    "fitness": {
+      "per_agent": {
+        "random": {
+          "win_rate": 0.0,
+          "avg_cells_revealed": 95.2,
+          "avg_progress_fraction": 0.44074074074074077,
+          "avg_mines_hit": 3.0,
+          "avg_turns": 9.2,
+          "n_games": 10
+        },
+        "pafg": {
+          "win_rate": 0.8,
+          "avg_cells_revealed": 215.3,
+          "avg_progress_fraction": 0.9967592592592593,
+          "avg_mines_hit": 0.6,
+          "avg_turns": 120.8,
+          "n_games": 10
+        },
+        "pafg-llm": {
+          "win_rate": 1.0,
+          "avg_cells_revealed": 216.0,
+          "avg_progress_fraction": 1.0,
+          "avg_mines_hit": 0.0,
+          "avg_turns": 100.7,
+          "n_games": 10
+        }
+      },
+      "skill_spread": 0.5592592592592592,
+      "n_games": 10
+    },
+    "parent_snapshot": {
+      "rows": 16,
+      "cols": 16,
+      "mine_count": 40,
+      "starting_health": 1,
+      "mine_damage": 1,
+      "safe_first_click": true,
+      "reveal_strategy": "gen-c6c4b83b",
+      "flag_limit": null,
+      "mine_behavior": "static",
+      "info_strategy": "count-mines",
+      "neighborhood": "moore",
+      "win_condition": "standard"
+    },
+    "generation": 2,
+    "code_kind": null,
+    "code_source": null,
+    "code_key": null,
+    "pafg_llm_agent": {
+      "name": "ChainReactionClusterAwareAgent",
+      "description": "Adapts to chain-reaction mine behavior by penalizing frontier guesses near dense mine clusters, weighting both mine probability and suspected neighbor mine count to avoid triggering cascading explosions.",
+      "code": "class ChainReactionClusterAwareAgent(ArchiveAwarePAFGAgent):\n    def __init__(self, seed=None):\n        super().__init__(seed=seed)\n\n    def frontier_cell_score(self, game, grid, pos, prob_map, mine_set, neighbors_of):\n        r, c = pos\n        p = prob_map.get(pos, 0.5)\n        neighbors = neighbors_of.get((r, c), [])\n        suspected_mines = sum(\n            1\n            for nr, nc in neighbors\n            if (nr, nc) in mine_set or prob_map.get((nr, nc), 0.0) >= 0.5\n        )\n        cluster_penalty = 0.0\n        visited = set()\n        queue = deque()\n        for nr, nc in neighbors:\n            if (nr, nc) in mine_set or prob_map.get((nr, nc), 0.0) >= 0.5:\n                queue.append((nr, nc))\n                visited.add((nr, nc))\n        depth = 0\n        while queue and depth < 3:\n            next_queue = deque()\n            while queue:\n                mr, mc = queue.popleft()\n                cluster_penalty += 1.0\n                for xr, xc in neighbors_of.get((mr, mc), []):\n                    if (xr, xc) not in visited:\n                        if (xr, xc) in mine_set or prob_map.get((xr, xc), 0.0) >= 0.5:\n                            visited.add((xr, xc))\n                            next_queue.append((xr, xc))\n            queue = next_queue\n            depth += 1\n        adjusted_score = p + 0.04 * cluster_penalty\n        return (adjusted_score, -suspected_mines, self._rng.random())\n",
+      "assumptions": [
+        "Chain-reaction cascades mean hitting a mine in a dense cluster is far more costly than hitting an isolated mine, so the score penalizes cells near large connected mine clusters using a bounded BFS.",
+        "With 3 starting lives, the agent can still take some risks, but systematically avoids high-density mine neighborhoods to minimize expected cascade damage."
+      ]
+    },
+    "n_children_attempted": 1,
+    "n_children_admitted": 1
+  },
+  {
+    "config_snapshot": {
+      "rows": 16,
+      "cols": 16,
+      "mine_count": 40,
+      "starting_health": 3,
+      "mine_damage": 1,
+      "safe_first_click": true,
+      "reveal_strategy": "gen-c6c4b83b",
+      "flag_limit": null,
+      "mine_behavior": "drifting",
+      "info_strategy": "count-mines",
+      "neighborhood": "moore",
+      "win_condition": "standard"
+    },
+    "description": "Mines slowly wander into adjacent unrevealed cells each turn while players have 3 lives, rewarding skilled solvers who quickly deduce and flag mine locations before they drift into new territory, while random agents blunder into moving mines repeatedly and exhaust their health.",
+    "fitness": {
+      "per_agent": {
+        "random": {
+          "win_rate": 0.0,
+          "avg_cells_revealed": 104.4,
+          "avg_progress_fraction": 0.48333333333333334,
+          "avg_mines_hit": 3.0,
+          "avg_turns": 16.1,
+          "n_games": 10
+        },
+        "pafg": {
+          "win_rate": 0.9,
+          "avg_cells_revealed": 215.8,
+          "avg_progress_fraction": 0.9990740740740741,
+          "avg_mines_hit": 0.1,
+          "avg_turns": 208.2,
+          "n_games": 10
+        },
+        "pafg-llm": {
+          "win_rate": 1.0,
+          "avg_cells_revealed": 216.0,
+          "avg_progress_fraction": 1.0,
+          "avg_mines_hit": 0.0,
+          "avg_turns": 122.8,
+          "n_games": 10
+        }
+      },
+      "skill_spread": 0.5166666666666666,
+      "n_games": 10
+    },
+    "parent_snapshot": {
+      "rows": 16,
+      "cols": 16,
+      "mine_count": 40,
+      "starting_health": 1,
+      "mine_damage": 1,
+      "safe_first_click": true,
+      "reveal_strategy": "gen-c6c4b83b",
+      "flag_limit": null,
+      "mine_behavior": "static",
+      "info_strategy": "count-mines",
+      "neighborhood": "moore",
+      "win_condition": "standard"
+    },
+    "generation": 2,
+    "code_kind": null,
+    "code_source": null,
+    "code_key": null,
+    "pafg_llm_agent": {
+      "name": "DriftingMineEarlyFlagAgent",
+      "description": "Adapts to drifting mines by flagging deduced mines immediately (flag-first) and inflating frontier cell mine probabilities to account for drift uncertainty, encouraging conservative guessing.",
+      "code": "class DriftingMineEarlyFlagAgent(ArchiveAwarePAFGAgent):\n    def __init__(self, seed=None):\n        super().__init__(seed=seed)\n\n    def action_priority(self, game, grid, rows, cols):\n        return \"flag-first\"\n\n    def postprocess_prob_map(self, game, grid, prob_map, mine_set, neighbors_of):\n        drift_prob = 0.30\n        adjusted = {}\n        for pos, p in prob_map.items():\n            r, c = pos\n            cell = grid[r][c]\n            if cell.is_revealed or cell.is_flagged:\n                adjusted[pos] = p\n                continue\n            unrevealed_neighbors = [\n                (nr, nc) for nr, nc in neighbors_of[(r, c)]\n                if not grid[nr][nc].is_revealed and not grid[nr][nc].is_flagged\n            ]\n            n = len(unrevealed_neighbors)\n            drift_in = drift_prob * p * n / max(n, 1)\n            inflated = min(1.0, p + drift_in * (1 - p))\n            adjusted[pos] = inflated\n        return adjusted\n",
+      "assumptions": [
+        "Flagging mines early pins them and prevents drift, so flag-first priority is the primary adaptation.",
+        "Frontier probabilities are inflated slightly to reflect that drifting mines may have moved into neighboring unrevealed cells, making conservative guessing safer."
+      ]
+    },
+    "n_children_attempted": 2,
+    "n_children_admitted": 1
+  },
+  {
+    "config_snapshot": {
+      "rows": 16,
+      "cols": 16,
+      "mine_count": 40,
+      "starting_health": 3,
+      "mine_damage": 1,
+      "safe_first_click": true,
+      "reveal_strategy": "gen-c6c4b83b",
+      "flag_limit": null,
+      "mine_behavior": "chain-reaction",
+      "info_strategy": "count-mines",
+      "neighborhood": "gen-9cbd55ae",
+      "win_condition": "standard"
+    },
+    "description": "Simulates a hexagonal grid on a square board using offset-coordinate neighbors, giving each cell up to 6 structured neighbors so skilled solvers get tightly constraining clues while random agents are confused by the asymmetric row-dependent topology.",
+    "fitness": {
+      "per_agent": {
+        "random": {
+          "win_rate": 0.0,
+          "avg_cells_revealed": 103.5,
+          "avg_progress_fraction": 0.4791666666666667,
+          "avg_mines_hit": 3.0,
+          "avg_turns": 7.4,
+          "n_games": 10
+        },
+        "pafg": {
+          "win_rate": 0.9,
+          "avg_cells_revealed": 215.8,
+          "avg_progress_fraction": 0.9990740740740741,
+          "avg_mines_hit": 0.3,
+          "avg_turns": 115.6,
+          "n_games": 10
+        },
+        "pafg-llm": {
+          "win_rate": 0.0,
+          "avg_cells_revealed": 87.4,
+          "avg_progress_fraction": 0.4046296296296297,
+          "avg_mines_hit": 3.0,
+          "avg_turns": 10.1,
+          "n_games": 10
+        }
+      },
+      "skill_spread": 0.5199074074074075,
+      "n_games": 10
+    },
+    "parent_snapshot": {
+      "rows": 16,
+      "cols": 16,
+      "mine_count": 40,
+      "starting_health": 3,
+      "mine_damage": 1,
+      "safe_first_click": true,
+      "reveal_strategy": "gen-c6c4b83b",
+      "flag_limit": null,
+      "mine_behavior": "chain-reaction",
+      "info_strategy": "count-mines",
+      "neighborhood": "moore",
+      "win_condition": "standard"
+    },
+    "generation": 3,
+    "code_kind": "neighborhood",
+    "code_source": "class HexagonalNeighborhood(Neighborhood):\n    \"\"\"\n    Hexagonal grid neighborhood mapped onto a square grid using offset coordinates.\n    Even rows connect to 6 neighbors (offset-hex style), odd rows connect to a\n    different 6 neighbors \u2014 mimicking a true honeycomb topology. Each cell has\n    exactly 6 neighbors instead of 8 (Moore) or 4 (Von Neumann), giving players\n    a clean, structured adjacency pattern that rewards systematic logical deduction:\n    fewer neighbors per cell means each clue is more constraining, so skilled\n    solvers can pin down mine locations faster, while the unfamiliar hex topology\n    trips up random play that expects square-grid patterns.\n    \"\"\"\n\n    # Even-row offsets (row % 2 == 0): hex neighbors in offset coords\n    _EVEN_OFFSETS = [\n        (-1, -1), (-1, 0),   # upper-left, upper-right\n        ( 0, -1), ( 0,  1),  # left, right\n        ( 1, -1), ( 1,  0),  # lower-left, lower-right\n    ]\n\n    # Odd-row offsets (row % 2 == 1): shifted hex neighbors\n    _ODD_OFFSETS = [\n        (-1,  0), (-1,  1),  # upper-left, upper-right\n        ( 0, -1), ( 0,  1),  # left, right\n        ( 1,  0), ( 1,  1),  # lower-left, lower-right\n    ]\n\n    def offsets(self) -> list[tuple[int, int]]:\n        # Return even-row offsets as the default; the Board.neighbors call\n        # uses board position to pick correct offsets, but since offsets() must\n        # return a single static list, we return the union of both sets deduplicated\n        # so that no neighbor is ever missed regardless of row parity.\n        # This gives at most 7 distinct offsets (union of even+odd), but in\n        # practice the board bounds filter keeps the count sensible.\n        seen = set()\n        result = []\n        for off in self._EVEN_OFFSETS + self._ODD_OFFSETS:\n            if off not in seen:\n                seen.add(off)\n                result.append(off)\n        return result\n",
+    "code_key": "gen-9cbd55ae",
+    "pafg_llm_agent": {
+      "name": "HexNeighborhoodPAFGAgent",
+      "description": "Overrides neighbor_positions to use the correct row-parity hex offsets so PAFG constraint propagation uses the true hexagonal topology instead of the union fallback.",
+      "code": "class HexNeighborhoodPAFGAgent(ArchiveAwarePAFGAgent):\n    def __init__(self, seed=None):\n        super().__init__(seed=seed)\n        self._even_offsets = [\n            (-1, -1), (-1, 0),\n            ( 0, -1), ( 0,  1),\n            ( 1, -1), ( 1,  0),\n        ]\n        self._odd_offsets = [\n            (-1,  0), (-1,  1),\n            ( 0, -1), ( 0,  1),\n            ( 1,  0), ( 1,  1),\n        ]\n\n    def neighbor_positions(self, game, r, c, rows, cols):\n        offsets = self._even_offsets if r % 2 == 0 else self._odd_offsets\n        result = []\n        for dr, dc in offsets:\n            nr, nc = r + dr, c + dc\n            if 0 <= nr < rows and 0 <= nc < cols:\n                result.append((nr, nc))\n        return result\n\n    def frontier_cell_score(self, game, grid, pos, prob_map, mine_set, neighbors_of):\n        r, c = pos\n        p = prob_map.get(pos, 0.5)\n        suspected = sum(\n            1\n            for nr, nc in neighbors_of[(r, c)]\n            if (nr, nc) in mine_set or prob_map.get((nr, nc), 0.0) >= 0.5\n        )\n        return (p + 0.05 * suspected, -suspected, self._rng.random())\n",
+      "assumptions": [
+        "The hexagonal neighborhood uses row-parity offset coordinates exactly as defined in the archive entry, so even rows use _EVEN_OFFSETS and odd rows use _ODD_OFFSETS.",
+        "Chain-reaction penalty is retained from the exemplar since mine_behavior=chain-reaction is also active."
+      ]
+    },
+    "n_children_attempted": 1
+  },
+  {
+    "config_snapshot": {
+      "rows": 16,
+      "cols": 16,
+      "mine_count": 40,
+      "starting_health": 2,
+      "mine_damage": 1,
+      "safe_first_click": true,
+      "reveal_strategy": "gen-c6c4b83b",
+      "flag_limit": null,
+      "mine_behavior": "static",
+      "info_strategy": "direction",
+      "neighborhood": "moore",
+      "win_condition": "standard"
+    },
+    "description": "Cells show an arrow pointing toward the nearest mine instead of a count, rewarding skilled solvers who triangulate mine positions by intersecting directional clues while random agents blunder blindly and quickly exhaust their two lives.",
+    "fitness": {
+      "per_agent": {
+        "random": {
+          "win_rate": 0.0,
+          "avg_cells_revealed": 109.9,
+          "avg_progress_fraction": 0.5087962962962963,
+          "avg_mines_hit": 2.0,
+          "avg_turns": 9.9,
+          "n_games": 10
+        },
+        "pafg": {
+          "win_rate": 0.8,
+          "avg_cells_revealed": 213.3,
+          "avg_progress_fraction": 0.9875,
+          "avg_mines_hit": 0.3,
+          "avg_turns": 202.5,
+          "n_games": 10
+        },
+        "pafg-llm": {
+          "win_rate": 1.0,
+          "avg_cells_revealed": 216.0,
+          "avg_progress_fraction": 1.0,
+          "avg_mines_hit": 0.0,
+          "avg_turns": 94.8,
+          "n_games": 10
+        }
+      },
+      "skill_spread": 0.4912037037037037,
+      "n_games": 10
+    },
+    "parent_snapshot": {
+      "rows": 16,
+      "cols": 16,
+      "mine_count": 40,
+      "starting_health": 3,
+      "mine_damage": 1,
+      "safe_first_click": true,
+      "reveal_strategy": "gen-c6c4b83b",
+      "flag_limit": null,
+      "mine_behavior": "drifting",
+      "info_strategy": "count-mines",
+      "neighborhood": "moore",
+      "win_condition": "standard"
+    },
+    "generation": 3,
+    "code_kind": null,
+    "code_source": null,
+    "code_key": null,
+    "pafg_llm_agent": {
+      "name": "DirectionalArrowMinesweeperAgent",
+      "description": "Overrides clue_value to return 0 for revealed cells since arrow clues carry no adjacent-mine count information, and overrides postprocess_prob_map to use directional arrow data to bias mine probability toward cells in the pointed direction from each revealed cell.",
+      "code": "class DirectionalArrowMinesweeperAgent(ArchiveAwarePAFGAgent):\n    def __init__(self, seed=None):\n        super().__init__(seed=seed)\n\n    def clue_value(self, game, grid, r, c):\n        cell = game.get_cell(r, c)\n        if not cell.is_revealed or cell.is_mine:\n            return None\n        return cell.adjacent_mines\n\n    def postprocess_prob_map(self, game, grid, prob_map, mine_set, neighbors_of):\n        rows = len(grid)\n        cols = len(grid[0]) if rows > 0 else 0\n        direction_votes = {}\n        for r in range(rows):\n            for c in range(cols):\n                cell = grid[r][c]\n                if not cell.is_revealed or cell.is_mine:\n                    continue\n                adj_mines = cell.adjacent_mines\n                if adj_mines == 0:\n                    continue\n                nbrs = neighbors_of.get((r, c), [])\n                unknown_nbrs = [\n                    (nr, nc) for nr, nc in nbrs\n                    if not grid[nr][nc].is_revealed and not grid[nr][nc].is_flagged\n                ]\n                if not unknown_nbrs:\n                    continue\n                best_dr = 0\n                best_dc = 0\n                best_dist = -1\n                for nr, nc in unknown_nbrs:\n                    p = prob_map.get((nr, nc), 0.5)\n                    dist = p\n                    if dist > best_dist:\n                        best_dist = dist\n                        best_dr = nr - r\n                        best_dc = nc - c\n                for nr, nc in unknown_nbrs:\n                    dr = nr - r\n                    dc = nc - c\n                    norm_r = (best_dr / max(abs(best_dr), 1)) if best_dr != 0 else 0\n                    norm_c = (best_dc / max(abs(best_dc), 1)) if best_dc != 0 else 0\n                    dot = dr * norm_r + dc * norm_c\n                    if dot > 0:\n                        key = (nr, nc)\n                        direction_votes[key] = direction_votes.get(key, 0) + 1\n        if direction_votes:\n            max_votes = max(direction_votes.values()) if direction_votes else 1\n            for pos, votes in direction_votes.items():\n                if pos in prob_map:\n                    boost = 0.15 * (votes / max_votes)\n                    prob_map[pos] = min(1.0, prob_map[pos] + boost)\n            all_pos = list(prob_map.keys())\n            for pos in all_pos:\n                if pos not in direction_votes:\n                    prob_map[pos] = max(0.0, prob_map[pos] - 0.05)\n        return prob_map",
+      "assumptions": [
+        "cell.adjacent_mines still holds the true local adjacent mine count even under info_strategy=direction, so clue_value passes it through unchanged for the base solver logic",
+        "The directional arrow clue is used heuristically by biasing probability toward unknown neighbors that align with high-probability directions, improving frontier guesses without breaking the core PAFG constraint propagation"
+      ]
+    }
+  },
+  {
+    "config_snapshot": {
+      "rows": 16,
+      "cols": 16,
+      "mine_count": 40,
+      "starting_health": 1,
+      "mine_damage": 1,
+      "safe_first_click": true,
+      "reveal_strategy": "cascade",
+      "flag_limit": null,
+      "mine_behavior": "static",
+      "info_strategy": "gen-ce2f08de",
+      "neighborhood": "moore",
+      "win_condition": "standard"
+    },
+    "description": "Each revealed cell shows the difference between its immediate 3x3 mine count and the surrounding 5x5 ring mine count, letting skilled solvers triangulate mine positions by intersecting differential equations across overlapping cells while random agents gain nothing from the relative signal.",
+    "fitness": {
+      "per_agent": {
+        "random": {
+          "win_rate": 0.0,
+          "avg_cells_revealed": 61.3,
+          "avg_progress_fraction": 0.28379629629629627,
+          "avg_mines_hit": 1.0,
+          "avg_turns": 5.0,
+          "n_games": 10
+        },
+        "pafg": {
+          "win_rate": 0.9,
+          "avg_cells_revealed": 194.9,
+          "avg_progress_fraction": 0.9023148148148148,
+          "avg_mines_hit": 0.1,
+          "avg_turns": 108.9,
+          "n_games": 10
+        },
+        "pafg-llm": {
+          "win_rate": 0.0,
+          "avg_cells_revealed": 72.9,
+          "avg_progress_fraction": 0.3375,
+          "avg_mines_hit": 1.0,
+          "avg_turns": 30.9,
+          "n_games": 10
+        }
+      },
+      "skill_spread": 0.6185185185185185,
+      "n_games": 10
+    },
+    "parent_snapshot": {
+      "rows": 16,
+      "cols": 16,
+      "mine_count": 40,
+      "starting_health": 1,
+      "mine_damage": 1,
+      "safe_first_click": true,
+      "reveal_strategy": "cascade",
+      "flag_limit": null,
+      "mine_behavior": "static",
+      "info_strategy": "count-mines",
+      "neighborhood": "moore",
+      "win_condition": "standard"
+    },
+    "generation": 1,
+    "code_kind": "info_strategy",
+    "code_source": "class SectorSumDifferentialInfo(InfoStrategy):\n    \"\"\"\n    Each revealed cell shows the DIFFERENCE between the mine count in its\n    immediate 3x3 Moore neighborhood and the mine count in the ring just\n    outside (the 5x5 area minus the 3x3 area). A positive number means\n    more mines are close; negative means mines are farther out; zero shows\n    as blank. Skilled solvers can set up simultaneous equations using\n    overlapping cells to triangulate exact mine positions, while random\n    agents cannot exploit the differential signal.\n    \"\"\"\n\n    def encode(self, board, r, c):\n        rows = board.config.rows\n        cols = board.config.cols\n\n        inner_count = 0\n        for nr, nc in board.neighbors(r, c):\n            if board.grid[nr][nc].is_mine:\n                inner_count += 1\n\n        outer_count = 0\n        for dr in range(-2, 3):\n            for dc in range(-2, 3):\n                if abs(dr) <= 1 and abs(dc) <= 1:\n                    continue\n                nr, nc = r + dr, c + dc\n                if board.in_bounds(nr, nc) and board.grid[nr][nc].is_mine:\n                    outer_count += 1\n\n        diff = inner_count - outer_count\n        if diff == 0:\n            return \"\"\n        return str(diff)\n",
+    "code_key": "gen-ce2f08de",
+    "pafg_llm_agent": {
+      "name": "DifferentialClueAgent",
+      "description": "Overrides clue_value to decode the differential signal (inner 3x3 minus outer 5x5 ring mine count) into an effective inner-neighborhood mine count by estimating outer mines from known cells, enabling the standard PAFG constraint solver to work with this mechanic.",
+      "code": "class DifferentialClueAgent(ArchiveAwarePAFGAgent):\n    def __init__(self, seed=None):\n        super().__init__(seed=seed)\n\n    def clue_value(self, game, grid, r, c):\n        cell = game.get_cell(r, c)\n        if not cell.is_revealed:\n            return None\n        raw = cell.adjacent_mines\n        rows = game.get_config().rows\n        cols = game.get_config().cols\n\n        outer_known_mines = 0\n        outer_unknown = 0\n        for dr in range(-2, 3):\n            for dc in range(-2, 3):\n                if abs(dr) <= 1 and abs(dc) <= 1:\n                    continue\n                nr, nc = r + dr, c + dc\n                if nr < 0 or nr >= rows or nc < 0 or nc >= cols:\n                    continue\n                ocell = game.get_cell(nr, nc)\n                if ocell.is_mine or ocell.is_flagged:\n                    outer_known_mines += 1\n                elif not ocell.is_revealed:\n                    outer_unknown += 1\n\n        if outer_unknown == 0:\n            return raw + outer_known_mines\n\n        inner_neighbors = game.board.neighbors(r, c)\n        inner_known_mines = sum(\n            1 for nr, nc in inner_neighbors\n            if game.get_cell(nr, nc).is_mine or game.get_cell(nr, nc).is_flagged\n        )\n        inner_unknown = sum(\n            1 for nr, nc in inner_neighbors\n            if not game.get_cell(nr, nc).is_revealed and not game.get_cell(nr, nc).is_flagged\n        )\n\n        config = game.get_config()\n        total_mines = config.mine_count\n        total_cells = config.rows * config.cols\n        flagged_total = sum(\n            1 for rr in range(config.rows) for cc in range(config.cols)\n            if game.get_cell(rr, cc).is_flagged\n        )\n        revealed_total = sum(\n            1 for rr in range(config.rows) for cc in range(config.cols)\n            if game.get_cell(rr, cc).is_revealed\n        )\n        remaining_mines = total_mines - flagged_total\n        remaining_unknown = total_cells - revealed_total - flagged_total\n        base_prob = remaining_mines / remaining_unknown if remaining_unknown > 0 else 0.0\n\n        estimated_outer = outer_known_mines + base_prob * outer_unknown\n        estimated_inner_mines = raw + estimated_outer\n        clamped = max(inner_known_mines, min(inner_unknown + inner_known_mines, round(estimated_inner_mines)))\n        return clamped\n",
+      "assumptions": [
+        "cell.adjacent_mines stores the raw differential value (inner - outer) as an integer, which this agent decodes back to an approximate inner mine count for the standard PAFG constraint logic",
+        "When outer unknowns exist, a global mine density estimate is used to approximate outer mine count, which may be imprecise but still outperforms treating the raw differential as a standard clue"
+      ]
+    },
+    "n_children_attempted": 1,
+    "n_children_admitted": 1
+  },
+  {
+    "config_snapshot": {
+      "rows": 16,
+      "cols": 16,
+      "mine_count": 36,
+      "starting_health": 3,
+      "mine_damage": 1,
+      "safe_first_click": true,
+      "reveal_strategy": "cascade",
+      "flag_limit": null,
+      "mine_behavior": "static",
+      "info_strategy": "count-mines",
+      "neighborhood": "moore",
+      "win_condition": "gen-c7b713b1"
+    },
+    "description": "Divides the board into a 4x4 grid of zones that must be fully cleared left-to-right top-to-bottom in order, rewarding skilled players who systematically deduce each sector while random agents waste turns clicking locked zones and fail to build sequential progress.",
+    "fitness": {
+      "per_agent": {
+        "random": {
+          "win_rate": 0.0,
+          "avg_cells_revealed": 100.3,
+          "avg_progress_fraction": 0.4559090909090909,
+          "avg_mines_hit": 3.0,
+          "avg_turns": 13.8,
+          "n_games": 10
+        },
+        "pafg": {
+          "win_rate": 0.9,
+          "avg_cells_revealed": 219.9,
+          "avg_progress_fraction": 0.9995454545454546,
+          "avg_mines_hit": 0.1,
+          "avg_turns": 191.1,
+          "n_games": 10
+        },
+        "pafg-llm": {
+          "win_rate": 0.8,
+          "avg_cells_revealed": 219.7,
+          "avg_progress_fraction": 0.9986363636363635,
+          "avg_mines_hit": 0.3,
+          "avg_turns": 264.1,
+          "n_games": 10
+        }
+      },
+      "skill_spread": 0.5436363636363637,
+      "n_games": 10
+    },
+    "parent_snapshot": {
+      "rows": 16,
+      "cols": 16,
+      "mine_count": 40,
+      "starting_health": 1,
+      "mine_damage": 1,
+      "safe_first_click": true,
+      "reveal_strategy": "cascade",
+      "flag_limit": null,
+      "mine_behavior": "static",
+      "info_strategy": "count-mines",
+      "neighborhood": "moore",
+      "win_condition": "standard"
+    },
+    "generation": 1,
+    "code_kind": "win_condition",
+    "code_source": "class ProgressiveZoneWin(WinCondition):\n    \"\"\"\n    The board is divided into a 4x4 grid of zones. The player must clear\n    (reveal all safe cells in) each zone before moving to the next zone\n    in a fixed order (left-to-right, top-to-bottom). A zone is 'unlocked'\n    once the previous zone is cleared. Clicking in a locked zone still works\n    but does not count toward progress. This rewards skilled players who\n    systematically deduce and clear each sector, while random agents waste\n    clicks in locked zones and fail to build the sequential clearing chain.\n    \"\"\"\n\n    ZONE_ROWS = 4\n    ZONE_COLS = 4\n\n    def __init__(self, seed=None):\n        super().__init__(seed)\n        self._total_zones = self.ZONE_ROWS * self.ZONE_COLS\n\n    def _get_zone(self, r, c, rows, cols):\n        zone_r = int(r * self.ZONE_ROWS / rows)\n        zone_c = int(c * self.ZONE_COLS / cols)\n        return zone_r * self.ZONE_COLS + zone_c\n\n    def _zone_safe_cells(self, board, zone_idx):\n        rows = board.config.rows\n        cols = board.config.cols\n        safe = []\n        for r in range(rows):\n            for c in range(cols):\n                if self._get_zone(r, c, rows, cols) == zone_idx:\n                    cell = board.grid[r][c]\n                    if not cell.is_mine:\n                        safe.append((r, c))\n        return safe\n\n    def _zone_cleared(self, board, zone_idx):\n        safe_cells = self._zone_safe_cells(board, zone_idx)\n        if not safe_cells:\n            return True\n        return all(board.grid[r][c].is_revealed for r, c in safe_cells)\n\n    def _current_required_zone(self, board):\n        \"\"\"Return the index of the first zone that is not yet cleared.\"\"\"\n        for z in range(self._total_zones):\n            if not self._zone_cleared(board, z):\n                return z\n        return self._total_zones  # all zones cleared\n\n    def evaluate(self, board, game, action):\n        required = self._current_required_zone(board)\n        if required >= self._total_zones:\n            return 'won'\n        return None\n\n    def summary(self):\n        return {\n            'zone_rows': self.ZONE_ROWS,\n            'zone_cols': self.ZONE_COLS,\n            'total_zones': self._total_zones,\n        }\n",
+    "code_key": "gen-c7b713b1",
+    "pafg_llm_agent": {
+      "name": "ProgressiveZoneAgent",
+      "description": "Biases frontier cell scoring and opening action to prioritize the current required zone (left-to-right, top-to-bottom), so the agent systematically clears zones in order instead of wasting guesses in locked regions.",
+      "code": "class ProgressiveZoneAgent(ArchiveAwarePAFGAgent):\n    def __init__(self, seed=None):\n        super().__init__(seed)\n        self._ZONE_ROWS = 4\n        self._ZONE_COLS = 4\n\n    def _get_zone(self, r, c, rows, cols):\n        zone_r = int(r * self._ZONE_ROWS / rows)\n        zone_c = int(c * self._ZONE_COLS / cols)\n        return zone_r * self._ZONE_COLS + zone_c\n\n    def _current_required_zone(self, game, rows, cols):\n        total_zones = self._ZONE_ROWS * self._ZONE_COLS\n        for z in range(total_zones):\n            zone_has_unrevealed_safe = False\n            for r in range(rows):\n                for c in range(cols):\n                    if self._get_zone(r, c, rows, cols) == z:\n                        cell = game.get_cell(r, c)\n                        if not cell.is_mine and not cell.is_revealed:\n                            zone_has_unrevealed_safe = True\n                            break\n                if zone_has_unrevealed_safe:\n                    break\n            if zone_has_unrevealed_safe:\n                return z\n        return total_zones\n\n    def opening_action(self, game, grid, rows, cols):\n        zone_r_size = rows // self._ZONE_ROWS\n        zone_c_size = cols // self._ZONE_COLS\n        r = zone_r_size // 2\n        c = zone_c_size // 2\n        return (\"reveal\", r, c)\n\n    def frontier_cell_score(self, game, grid, pos, prob_map, mine_set, neighbors_of):\n        rows = game.get_config().rows\n        cols = game.get_config().cols\n        required_zone = self._current_required_zone(game, rows, cols)\n        r, c = pos\n        cell_zone = self._get_zone(r, c, rows, cols)\n        p = prob_map.get(pos, 0.5)\n        zone_penalty = abs(cell_zone - required_zone)\n        return (zone_penalty, p, self._rng.random())",
+      "assumptions": [
+        "Zones with no unrevealed safe cells are considered cleared, matching the ProgressiveZoneWin logic.",
+        "Opening click targets the center of zone 0 (top-left zone) to start clearing the first required zone immediately."
+      ]
+    }
+  },
+  {
+    "config_snapshot": {
+      "rows": 16,
+      "cols": 16,
+      "mine_count": 35,
+      "starting_health": 1,
+      "mine_damage": 1,
+      "safe_first_click": true,
+      "reveal_strategy": "cascade",
+      "flag_limit": null,
+      "mine_behavior": "static",
+      "info_strategy": "count-mines",
+      "neighborhood": "radius-2-moore",
+      "win_condition": "standard"
+    },
+    "description": "Each revealed cell shows the mine count within a large 5\u00d75 neighborhood (24 cells), forcing skilled solvers to triangulate mine positions by differencing overlapping large-area sums across the board, while random agents cannot exploit the broader but diluted signal \u2014 slightly fewer mines keeps the game winnable for the constraint solver.",
+    "fitness": {
+      "per_agent": {
+        "random": {
+          "win_rate": 0.0,
+          "avg_cells_revealed": 51.2,
+          "avg_progress_fraction": 0.2316742081447964,
+          "avg_mines_hit": 1.0,
+          "avg_turns": 6.2,
+          "n_games": 10
+        },
+        "pafg": {
+          "win_rate": 0.0,
+          "avg_cells_revealed": 21.7,
+          "avg_progress_fraction": 0.09819004524886878,
+          "avg_mines_hit": 1.0,
+          "avg_turns": 10.3,
+          "n_games": 10
+        },
+        "pafg-llm": {
+          "win_rate": 0.2,
+          "avg_cells_revealed": 78.3,
+          "avg_progress_fraction": 0.3542986425339366,
+          "avg_mines_hit": 0.8,
+          "avg_turns": 53.3,
+          "n_games": 10
+        }
+      },
+      "skill_spread": 0.12262443438914022,
+      "n_games": 10
+    },
+    "parent_snapshot": {
+      "rows": 16,
+      "cols": 16,
+      "mine_count": 40,
+      "starting_health": 1,
+      "mine_damage": 1,
+      "safe_first_click": true,
+      "reveal_strategy": "cascade",
+      "flag_limit": null,
+      "mine_behavior": "static",
+      "info_strategy": "gen-ce2f08de",
+      "neighborhood": "moore",
+      "win_condition": "standard"
+    },
+    "generation": 2,
+    "code_kind": null,
+    "code_source": null,
+    "code_key": null,
+    "pafg_llm_agent": {
+      "name": "Radius2MooreNeighborhoodAgent",
+      "description": "Overrides neighbor_positions to use the full 5x5 radius-2 Moore neighborhood so that clue constraints are correctly interpreted against the 24-cell area each revealed cell actually covers.",
+      "code": "class Radius2MooreNeighborhoodAgent(ArchiveAwarePAFGAgent):\n    def __init__(self, seed=None):\n        super().__init__(seed=seed)\n\n    def neighbor_positions(self, game, r, c, rows, cols):\n        result = []\n        for dr in range(-2, 3):\n            for dc in range(-2, 3):\n                if dr == 0 and dc == 0:\n                    continue\n                nr, nc = r + dr, c + dc\n                if 0 <= nr < rows and 0 <= nc < cols:\n                    result.append((nr, nc))\n        return result\n\n    def postprocess_prob_map(self, game, grid, prob_map, mine_set, neighbors_of):\n        rows = len(grid)\n        cols = len(grid[0]) if rows > 0 else 0\n        unrevealed_non_mine = [\n            (r, c)\n            for r in range(rows)\n            for c in range(cols)\n            if not grid[r][c].is_revealed and (r, c) not in mine_set\n        ]\n        if not unrevealed_non_mine:\n            return prob_map\n        config = game.get_config()\n        total_mines = config.mine_count\n        flagged_count = sum(\n            1 for r in range(rows) for c in range(cols)\n            if grid[r][c].is_flagged\n        )\n        known_mines = len(mine_set)\n        remaining_mines = total_mines - flagged_count - known_mines\n        off_frontier = [\n            pos for pos in unrevealed_non_mine\n            if pos not in prob_map\n        ]\n        if off_frontier and remaining_mines >= 0:\n            frontier_expected = sum(prob_map.get(pos, 0.0) for pos in unrevealed_non_mine if pos in prob_map)\n            off_frontier_mines = max(0.0, remaining_mines - frontier_expected)\n            base_prob = off_frontier_mines / len(off_frontier) if off_frontier else 0.0\n            base_prob = min(1.0, max(0.0, base_prob))\n            updated = dict(prob_map)\n            for pos in off_frontier:\n                updated[pos] = base_prob\n            return updated\n        return prob_map\n",
+      "assumptions": [
+        "The game uses radius-2-moore neighborhood meaning each clue covers all 24 cells in a 5x5 box; overriding neighbor_positions ensures the constraint solver builds correct equations.",
+        "postprocess_prob_map recalculates off-frontier cell probabilities using remaining mine count to improve guessing when pure constraint propagation leaves unknowns."
+      ]
+    }
+  }
+]

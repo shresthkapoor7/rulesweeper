@@ -98,13 +98,20 @@ catches obvious foot-guns but is not a security boundary — `archive.json` with
 non-null `code_source` is executable code, not data. Run only against trusted
 models. Subprocess isolation is a follow-up.
 
-**Agent-fairness caveat for `info_strategy`.** `PAFGAgent` and `NeuralAgent`
-read `cell.adjacent_mines` directly — they don't go through `InfoStrategy`. So
-under e.g. `info_strategy="parity"`, those agents still "see" the true integer
-count and won't be challenged by the obfuscation. Fitness signals from MORTAR
-for `info_strategy` mutations therefore overstate solvability until the agents
-are refactored to consult `MinesweeperGame.info_at`. (Random agent is unaffected
-because it ignores numbers entirely.)
+**Agent-fairness caveat for `info_strategy`.** `PAFGAgent` now consults
+`MinesweeperGame.info_at()` and only forms constraints when
+`info_strategy="count-mines"`; under any other named or generated info strategy
+its `_read_clue` returns `None` and the cell silently drops out of the
+equation system, so it can no longer "cheat" by reading `cell.adjacent_mines`
+behind the obfuscation. `NeuralAgent` still reads `cell.adjacent_mines`
+directly — fitness for `info_strategy` mutations is honest only on the
+`random + pafg + pafg-llm` panel (the new default after Pass 1). Run with the
+neural agent at your own risk on non-`count-mines` configs.
+
+**Agent-fairness caveat for `neighborhood`.** `PAFGAgent` now reads adjacency
+from `game.board.neighbors(r, c)` (the configured Neighborhood). It works
+correctly under `knight`, `radius-2-moore`, `von-neumann`, etc. The previous
+hardcoded 3×3 generator is gone.
 
 **Agent-fairness caveat for `win_condition`.** Agents do not adapt their
 strategy to non-standard objectives. `PAFGAgent` and `NeuralAgent` are tuned
@@ -117,16 +124,16 @@ agent until the agents are refactored to consult the configured objective.
 
 ### `pafg-llm` — per-mechanic LLM-tuned PAFG
 
-The MORTAR panel accepts a special name `pafg-llm` (opt-in via `--agents`)
-that, instead of resolving against the static `AGENTS` registry, asks the LLM
-to write a `ArchiveAwarePAFGAgent` subclass tailored to the specific mechanic
-being evaluated. Generation happens in `mortar.py:_materialize_panel`,
+The MORTAR panel accepts a special name `pafg-llm` (in the default panel as of
+the generation-pipeline overhaul) that, instead of resolving against the static
+`AGENTS` registry, asks the LLM to write a `ArchiveAwarePAFGAgent` subclass
+tailored to the specific mechanic being evaluated. Generation happens in `mortar.py:_materialize_panel`,
 immediately before each `evaluate_config_multi` call, via the helpers in
 `agents/pafg_archive_agent.py`:
 
 1. Build a synthetic archive entry from the live `(snapshot, description, code_meta)`.
 2. `generate_agent_candidate` — OpenRouter call (currently
-   `anthropic/claude-haiku-4.5`) returning JSON with `name`, `description`, `code`.
+   `anthropic/claude-sonnet-4.6`) returning JSON with `name`, `description`, `code`.
 3. `compile_agent_candidate` — AST validation (no imports, no forbidden
    names/attrs), exec in a curated namespace, must be exactly one subclass of
    `ArchiveAwarePAFGAgent`.
@@ -145,9 +152,10 @@ of paying for another LLM call. If the cached source ever fails to recompile
 
 **Cost.** Each iteration that uses `pafg-llm` makes one extra LLM call per
 config that needs evaluating (the mechanic-mutation call still happens
-separately). The default panel `["random", "pafg", "neural"]` does not
-include `pafg-llm`; opt in with
-`python mortar.py --agents random pafg neural pafg-llm`.
+separately). The default panel is `["random", "pafg", "pafg-llm"]`. `neural`
+was dropped from the default because it underperforms on the mutated-mechanic
+configs MORTAR generates; opt in explicitly with `--agents random pafg neural
+pafg-llm` if you want it.
 
 **Hook surface for the generated subclass** (defined on
 `ArchiveAwarePAFGAgent`):

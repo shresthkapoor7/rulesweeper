@@ -151,6 +151,48 @@ class MinesweeperGame:
     def get_player_metrics(self) -> dict:
         return self.player.metrics()
 
+    def behavior_summary(self) -> dict:
+        """
+        Snapshot of mechanic identities and key params, intended for agents
+        (notably pafg-llm) that want to reason about the live mechanic without
+        poking at private attributes.
+
+        Returns a dict shaped:
+            {
+              "mine_behavior":   {"name": "drifting", "params": {"drift_prob": 0.3}},
+              "info_strategy":   {"name": "noisy-count", "params": {"lie_prob": 0.2}},
+              "win_condition":   {"name": "survival",   "params": {"target_turns": 20}},
+              "neighborhood":    {"name": "moore",      "params": {"offsets": [...]}},
+              "reveal_strategy": {"name": "cascade",    "params": {}},
+            }
+
+        ``name`` is the registry key from GameConfig (which is the canonical
+        handle the agent already knows). ``params`` comes from each strategy's
+        ``summary()`` method — empty dict for strategies that have no knobs.
+        """
+        return {
+            "mine_behavior": {
+                "name":   self.config.mine_behavior,
+                "params": self._mine_behavior.summary(),
+            },
+            "info_strategy": {
+                "name":   self.config.info_strategy,
+                "params": self._info_strategy.summary(),
+            },
+            "win_condition": {
+                "name":   self.config.win_condition,
+                "params": self._win_condition.summary(),
+            },
+            "neighborhood": {
+                "name":   self.config.neighborhood,
+                "params": self.board._neighborhood.summary(),
+            },
+            "reveal_strategy": {
+                "name":   self.config.reveal_strategy,
+                "params": self.board._strategy.summary(),
+            },
+        }
+
     ##############################################################
     # ENDGAME + MINE BEHAVIOR HOOKS
     ##############################################################

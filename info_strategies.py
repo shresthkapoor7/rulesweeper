@@ -23,6 +23,10 @@ class InfoStrategy(ABC):
         """Return display text for cell (r, c). Empty string renders as blank."""
         ...
 
+    def summary(self) -> dict:
+        """Key parameters for this strategy. Override on knob-bearing subclasses."""
+        return {}
+
 
 class CountMinesInfo(InfoStrategy):
     """Canonical minesweeper: count of adjacent mines, blank for zero."""
@@ -122,6 +126,9 @@ class NoisyCountInfo(InfoStrategy):
     ) -> None:
         super().__init__(seed)
         self.lie_prob = lie_prob if lie_prob is not None else self.DEFAULT_LIE_PROB
+
+    def summary(self) -> dict:
+        return {"lie_prob": self.lie_prob}
 
     def encode(self, board, r, c):
         true_n = board.grid[r][c].adjacent_mines

@@ -19,6 +19,10 @@ class RevealStrategy(ABC):
         """Reveal cell(s) starting from (r, c). Returns list of newly revealed (r, c) pairs."""
         ...
 
+    def summary(self) -> dict:
+        """Key parameters for this strategy. Override on knob-bearing subclasses."""
+        return {}
+
 
 class CascadeReveal(RevealStrategy):
     """

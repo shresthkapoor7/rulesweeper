@@ -6,16 +6,6 @@ from agents import Agent
 from game import MinesweeperGame
 
 
-def _neighbors(r: int, c: int, rows: int, cols: int):
-    """Yield valid (r, c) pairs for all 8 Moore-neighborhood cells."""
-    for dr in (-1, 0, 1):
-        for dc in (-1, 0, 1):
-            if (dr, dc) != (0, 0):
-                nr, nc = r + dr, c + dc
-                if 0 <= nr < rows and 0 <= nc < cols:
-                    yield nr, nc
-
-
 class PAFGAgent(Agent):
     """
     PAFG hierarchical constraint solver.
@@ -25,6 +15,21 @@ class PAFGAgent(Agent):
       P (Primary)— simple constraint propagation (deterministic free moves)
       A (Advanced)— Gaussian elimination + enumeration for exact mine probabilities
       G (Guess)  — pick lowest mine-probability cell when all else fails
+
+    Honest baseline. Two design choices keep this agent fair to the configured
+    mechanic so its skill_spread reflects what a count-mines minesweeper solver
+    actually contributes, not what the engine secretly knows:
+
+    1. Adjacency is read from `game.board.neighbors(r, c)` (the configured
+       Neighborhood), not a hardcoded Moore generator. Under non-Moore
+       neighborhoods PAFG's constraints stay arithmetically consistent.
+    2. Clues are read from `MinesweeperGame.info_at(r, c)` (the same display
+       a human player sees). For info_strategies that don't render an integer
+       mine count under the configured neighborhood, no constraint is formed
+       — the cell silently drops from the equation system. This is what
+       makes obfuscating info strategies like parity / distance / direction /
+       gen-* actually challenging for PAFG; pafg-llm carries the spread on
+       those by overriding clue_value with a strategy-aware decoder.
 
     Based on: minesweepergame.com/math/a-solver-of-single-agent-stochastic-puzzle.pdf
     """
@@ -45,6 +50,24 @@ class PAFGAgent(Agent):
         # Build board snapshot once — avoid repeated get_cell calls
         grid = [[game.get_cell(r, c) for c in range(cols)] for r in range(rows)]
 
+        # Precompute adjacency under the live Neighborhood. PAFG no longer
+        # walks a hardcoded Moore neighborhood — the configured topology
+        # decides what "adjacent" means.
+        neighbors_of: dict[tuple[int, int], list[tuple[int, int]]] = {
+            (r, c): game.board.neighbors(r, c)
+            for r in range(rows)
+            for c in range(cols)
+        }
+
+        # Precompute clue values from the displayed info strategy. Returns
+        # None for any cell whose display can't be safely interpreted as a
+        # local mine count under the configured neighborhood. See _read_clue.
+        clue_of: dict[tuple[int, int], int | None] = {
+            (r, c): self._read_clue(game, grid, r, c)
+            for r in range(rows)
+            for c in range(cols)
+        }
+
         flag_limit = cfg.flag_limit
         flags_placed = sum(
             1 for r in range(rows) for c in range(cols) if grid[r][c].is_flagged
@@ -57,26 +80,30 @@ class PAFGAgent(Agent):
             return ("reveal", 0, 0)
 
         # Stage P — constraint propagation
-        # Returns the action to take (if any) and the full mine_set so later
-        # stages can treat deduced mines as virtual flags even when can_flag=False.
-        action, mine_set = self._stage_p(grid, rows, cols, can_flag)
+        action, mine_set = self._stage_p(grid, rows, cols, neighbors_of, clue_of, can_flag)
         if action:
             return action
 
         # Stage A — Gaussian elimination + enumeration
-        action, prob_map = self._stage_a(grid, rows, cols, cfg.mine_count, mine_set, can_flag)
+        action, prob_map = self._stage_a(
+            grid, rows, cols, neighbors_of, clue_of,
+            cfg.mine_count, mine_set, can_flag,
+        )
         if action:
             return action
 
         # Stage G — guess on lowest mine probability; skip known mines
-        return self._stage_g(grid, rows, cols, prob_map, mine_set)
+        return self._stage_g(grid, rows, cols, neighbors_of, prob_map, mine_set)
 
     # ------------------------------------------------------------------
     # Stage P — constraint propagation
     # ------------------------------------------------------------------
 
     def _stage_p(
-        self, grid, rows, cols, can_flag
+        self, grid, rows, cols,
+        neighbors_of: dict[tuple[int, int], list[tuple[int, int]]],
+        clue_of: dict[tuple[int, int], int | None],
+        can_flag,
     ) -> tuple[tuple[str, int, int] | None, set[tuple[int, int]]]:
         """
         Iterate constraint propagation until fixpoint.
@@ -91,15 +118,15 @@ class PAFGAgent(Agent):
             changed = False
             for r in range(rows):
                 for c in range(cols):
-                    cell = grid[r][c]
-                    if not cell.is_revealed or cell.adjacent_mines == 0:
+                    clue = clue_of[(r, c)]
+                    if clue is None or clue == 0:
                         continue
                     # Pass mine_set so already-deduced mines count as virtual flags,
                     # enabling second-order deductions within the same fixpoint loop.
                     flagged, unrevealed = self._classify_neighbors(
-                        grid, rows, cols, r, c, virtual_mines=mine_set
+                        grid, neighbors_of, r, c, virtual_mines=mine_set
                     )
-                    remaining = cell.adjacent_mines - len(flagged)
+                    remaining = clue - len(flagged)
                     if remaining < 0:
                         continue
                     if remaining == 0:
@@ -126,7 +153,10 @@ class PAFGAgent(Agent):
     # ------------------------------------------------------------------
 
     def _stage_a(
-        self, grid, rows, cols, mine_count,
+        self, grid, rows, cols,
+        neighbors_of: dict[tuple[int, int], list[tuple[int, int]]],
+        clue_of: dict[tuple[int, int], int | None],
+        mine_count,
         mine_set: set[tuple[int, int]],
         can_flag: bool,
     ) -> tuple[tuple[str, int, int] | None, dict[tuple[int, int], float]]:
@@ -148,11 +178,14 @@ class PAFGAgent(Agent):
         if not unrevealed:
             return None, {}
 
-        # Frontier: unrevealed cells adjacent to at least one revealed numbered cell
+        # Frontier: unrevealed cells adjacent to at least one revealed cell
+        # whose clue we can interpret. Cells whose clue is None (unparseable
+        # display) contribute nothing to the frontier or the equation system.
         frontier_set: set[tuple[int, int]] = set()
         for r, c in unrevealed:
-            for nr, nc in _neighbors(r, c, rows, cols):
-                if grid[nr][nc].is_revealed and grid[nr][nc].adjacent_mines > 0:
+            for nr, nc in neighbors_of[(r, c)]:
+                clue = clue_of[(nr, nc)]
+                if grid[nr][nc].is_revealed and clue is not None and clue > 0:
                     frontier_set.add((r, c))
                     break
 
@@ -160,8 +193,9 @@ class PAFGAgent(Agent):
         var_index = {pos: i for i, pos in enumerate(frontier)}
         non_frontier = [pos for pos in unrevealed if pos not in frontier_set]
 
-        # Build equations: each revealed cell with unrevealed frontier neighbors
-        equations: list[tuple[list[int], int]] = []  # (row of var indices, rhs)
+        # Build equations: each revealed cell with a usable clue and unrevealed
+        # frontier neighbors. Cells with clue==None silently skip.
+        equations: list[tuple[list[int], int]] = []
         seen_constraints: set[frozenset] = set()
         total_flagged = sum(
             1 for r in range(rows) for c in range(cols) if grid[r][c].is_flagged
@@ -169,14 +203,16 @@ class PAFGAgent(Agent):
 
         for r in range(rows):
             for c in range(cols):
-                cell = grid[r][c]
-                if not cell.is_revealed or cell.adjacent_mines == 0:
+                clue = clue_of[(r, c)]
+                if clue is None or clue == 0:
                     continue
-                flagged_nbrs, unrevealed_nbrs = self._classify_neighbors(grid, rows, cols, r, c)
+                flagged_nbrs, unrevealed_nbrs = self._classify_neighbors(
+                    grid, neighbors_of, r, c,
+                )
                 frontier_nbrs = [pos for pos in unrevealed_nbrs if pos in frontier_set]
                 if not frontier_nbrs:
                     continue
-                rhs = cell.adjacent_mines - len(flagged_nbrs)
+                rhs = clue - len(flagged_nbrs)
                 key = frozenset(frontier_nbrs)
                 if key in seen_constraints:
                     continue
@@ -259,7 +295,9 @@ class PAFGAgent(Agent):
     # ------------------------------------------------------------------
 
     def _stage_g(
-        self, grid, rows, cols, prob_map: dict[tuple[int, int], float],
+        self, grid, rows, cols,
+        neighbors_of: dict[tuple[int, int], list[tuple[int, int]]],
+        prob_map: dict[tuple[int, int], float],
         mine_set: set[tuple[int, int]],
     ) -> tuple[str, int, int]:
         unrevealed = [
@@ -279,7 +317,7 @@ class PAFGAgent(Agent):
             r, c = pos
             p = prob_map.get(pos, 0.5)
             nbr_count = sum(
-                1 for nr, nc in _neighbors(r, c, rows, cols)
+                1 for nr, nc in neighbors_of[(r, c)]
                 if not grid[nr][nc].is_revealed and not grid[nr][nc].is_flagged
             )
             return (p, -nbr_count, self._rng.random())
@@ -291,8 +329,43 @@ class PAFGAgent(Agent):
     # Helpers
     # ------------------------------------------------------------------
 
+    def _read_clue(
+        self,
+        game: MinesweeperGame,
+        grid,
+        r: int,
+        c: int,
+    ) -> int | None:
+        """
+        Return the integer mine-count constraint from the displayed clue, or
+        None if the displayed value can't be safely interpreted as a local
+        mine count under the configured neighborhood.
+
+        Honest baseline: only `info_strategy="count-mines"` produces a clue
+        that's guaranteed to equal the local mine count. Every other strategy
+        either obfuscates the count (`parity`, `noisy-count`), reports a
+        non-local quantity (`distance`, `direction`, `count-flags`), or could
+        be anything (`gen-*`). For those, this method returns None and the
+        cell contributes no constraint to the solver — the right behavior for
+        an agent that should only deduce from what a player can see.
+        """
+        cell = grid[r][c]
+        if not cell.is_revealed or cell.is_mine:
+            return None
+        if game.get_config().info_strategy != "count-mines":
+            return None
+        display = game.info_at(r, c)
+        if display == "":
+            return 0
+        try:
+            return int(display)
+        except (TypeError, ValueError):
+            return None
+
     def _classify_neighbors(
-        self, grid, rows, cols, r, c,
+        self, grid,
+        neighbors_of: dict[tuple[int, int], list[tuple[int, int]]],
+        r, c,
         virtual_mines: set[tuple[int, int]] | None = None,
     ) -> tuple[list[tuple[int, int]], list[tuple[int, int]]]:
         """
@@ -301,7 +374,7 @@ class PAFGAgent(Agent):
         counted as flagged for constraint purposes.
         """
         flagged, unrevealed = [], []
-        for nr, nc in _neighbors(r, c, rows, cols):
+        for nr, nc in neighbors_of[(r, c)]:
             nbr = grid[nr][nc]
             if nbr.is_flagged or (virtual_mines and (nr, nc) in virtual_mines):
                 flagged.append((nr, nc))

@@ -53,6 +53,14 @@ MinesweeperGame:
   game.get_config() -> GameConfig
   game.get_cell(r, c) -> Cell
   game.get_state() -> GameState
+  game.behavior_summary() -> dict[str, dict]
+      keys: "mine_behavior", "info_strategy", "win_condition",
+            "neighborhood", "reveal_strategy"
+      each value: {"name": <registry-key str>, "params": {...}}
+      Use this to read knobs like drift_prob, lie_prob, target_turns,
+      neighborhood offsets, etc. The default `clue_value` hook still
+      reads `cell.adjacent_mines` (the TRUE count) — these params are
+      for tuning your hooks, not decoding the displayed clue.
   game.board -> Board
   game.player -> Player
 
@@ -147,8 +155,17 @@ class ArchiveAwarePAFGAgent(Agent):
         rows: int,
         cols: int,
     ) -> tuple[str, int, int]:
-        """Opening move hook."""
-        return ("reveal", 0, 0)
+        """
+        Opening move hook.
+
+        Default opens at the corner under cascade reveal (most flood-fill is
+        likely to spill across the board from a corner zero). Under any other
+        reveal strategy, the corner is a poor first click (no cascade follows
+        and edge cells carry less information), so default to board center.
+        """
+        if game.get_config().reveal_strategy == "cascade":
+            return ("reveal", 0, 0)
+        return ("reveal", rows // 2, cols // 2)
 
     def action_priority(
         self,
@@ -642,6 +659,38 @@ class ArchiveAwarePAFGAgent(Agent):
         return True
 
 
+# ---------------------------------------------------------------------------
+# Exemplar subclasses — embedded in the LLM prompt to anchor expectations.
+#
+# These are deliberately tiny: each one overrides 1-2 hooks with a focused
+# rationale tied to a specific named mechanic. They are NOT used at runtime;
+# their only purpose is to give the prompt concrete reference code so the LLM
+# converges on the "small, surgical hook override" style rather than rewriting
+# the solver.
+# ---------------------------------------------------------------------------
+
+
+class _ExemplarFlagFirstAgent(ArchiveAwarePAFGAgent):
+    """Adapts to win_condition='flag-all-mines' by flagging deduced mines first."""
+
+    def action_priority(self, game, grid, rows, cols):
+        return "flag-first"
+
+
+class _ExemplarChainReactionAgent(ArchiveAwarePAFGAgent):
+    """Adapts to mine_behavior='chain-reaction' by penalizing high-density frontier guesses."""
+
+    def frontier_cell_score(self, game, grid, pos, prob_map, mine_set, neighbors_of):
+        r, c = pos
+        p = prob_map.get(pos, 0.5)
+        suspected = sum(
+            1
+            for nr, nc in neighbors_of[(r, c)]
+            if (nr, nc) in mine_set or prob_map.get((nr, nc), 0.0) >= 0.5
+        )
+        return (p + 0.05 * suspected, -suspected, self._rng.random())
+
+
 def _entry_config(entry: dict[str, Any]) -> GameConfig:
     return GameConfig(**entry["config_snapshot"])
 
@@ -743,6 +792,40 @@ _NAMED_MECHANIC_PRIMER: dict[tuple[str, str], str] = {
 }
 
 
+_DEFAULT_FIELD_VALUES: dict[str, Any] = {
+    "info_strategy":   "count-mines",
+    "reveal_strategy": "cascade",
+    "mine_behavior":   "static",
+    "neighborhood":    "moore",
+    "win_condition":   "standard",
+    "safe_first_click": True,
+}
+
+
+def _joint_mechanic_caution(config_snapshot: dict[str, Any]) -> str:
+    """
+    When 2+ mechanics are simultaneously off-default, warn the agent generator
+    against trying to neutralize every mechanic at once. Returns an empty
+    string when only one (or zero) non-default mechanic is active.
+    """
+    nondefault = [
+        f"{field}={config_snapshot.get(field)!r}"
+        for field, default in _DEFAULT_FIELD_VALUES.items()
+        if config_snapshot.get(field) != default
+    ]
+    if len(nondefault) < 2:
+        return ""
+    return (
+        f"Multiple non-default mechanics are active simultaneously: "
+        f"{', '.join(nondefault)}. Pick the mechanic that most distorts "
+        "deduction (usually info_strategy or win_condition) and adapt for "
+        "that ONE with one or two hook overrides. Do not try to neutralize "
+        "every mechanic at once — the resulting subclass tends to be brittle. "
+        "Side effects from the other mechanics will still be handled by "
+        "ArchiveAwarePAFGAgent's defaults."
+    )
+
+
 def _named_mechanic_primer(config_snapshot: dict[str, Any]) -> str:
     notes: list[str] = []
     for field in (
@@ -761,7 +844,107 @@ def _named_mechanic_primer(config_snapshot: dict[str, Any]) -> str:
     return "\n".join(notes)
 
 
-def _archive_summary_block(entry: dict[str, Any]) -> str:
+_GEN_FIELDS: tuple[str, ...] = (
+    "mine_behavior", "reveal_strategy", "info_strategy",
+    "neighborhood", "win_condition",
+)
+
+
+def _entry_key(entry: dict[str, Any]) -> str:
+    """Stable key for an entry's config snapshot. Mirrors mortar._config_key."""
+    return json.dumps(entry["config_snapshot"], sort_keys=True)
+
+
+def _active_generated_mechanics(
+    entry: dict[str, Any],
+    archive: dict[str, dict] | None,
+) -> list[dict[str, Any]]:
+    """
+    Walk the lineage to surface every ``gen-*`` mechanic currently active on
+    this entry's config. Returns a list of dicts with keys ``field``, ``key``,
+    ``description``, ``code_source``.
+
+    When ``archive`` is None or the introducing ancestor is unreachable, falls
+    back to whatever data lives directly on ``entry`` (the legacy single-source
+    behavior). For multi-stack lineages this is the surface that lets the
+    LLM-authored agent reason about complementarity at the code level.
+    """
+    config_snapshot = entry.get("config_snapshot", {})
+    by_key: dict[str, dict] = {}
+    if archive:
+        by_key = {_entry_key(e): e for e in archive.values()}
+
+    # Build the lineage chain (parent included) by walking parent_snapshot.
+    chain: list[dict[str, Any]] = [entry]
+    cur = entry
+    seen_keys: set[str] = {_entry_key(entry)}
+    while True:
+        parent_snapshot = cur.get("parent_snapshot")
+        if not parent_snapshot:
+            break
+        parent_key = json.dumps(parent_snapshot, sort_keys=True)
+        if parent_key in seen_keys:
+            break
+        parent_entry = by_key.get(parent_key)
+        if parent_entry is None:
+            break
+        chain.append(parent_entry)
+        seen_keys.add(parent_key)
+        cur = parent_entry
+        if len(chain) > 32:
+            break
+
+    results: list[dict[str, Any]] = []
+    for field in _GEN_FIELDS:
+        value = config_snapshot.get(field)
+        if not (isinstance(value, str) and value.startswith("gen-")):
+            continue
+        introducer = next(
+            (
+                e for e in chain
+                if e.get("code_kind") == field and e.get("code_key") == value
+            ),
+            None,
+        )
+        if introducer is None:
+            # Fallback: if the entry itself happens to carry the source for
+            # this field, use it; otherwise emit a stub.
+            if entry.get("code_kind") == field and entry.get("code_key") == value:
+                introducer = entry
+        if introducer is None:
+            results.append({
+                "field": field,
+                "key": value,
+                "description": "(introducing ancestor not in archive — source unavailable)",
+                "code_source": None,
+            })
+            continue
+        results.append({
+            "field": field,
+            "key": value,
+            "description": introducer.get("description") or "(no description)",
+            "code_source": introducer.get("code_source"),
+        })
+    return results
+
+
+def _format_active_generated_block(
+    mechanics: list[dict[str, Any]],
+) -> str:
+    if not mechanics:
+        return ""
+    blocks: list[str] = []
+    for m in mechanics:
+        header = f"# Active mechanic: {m['field']}={m['key']} — {m['description']}"
+        source = m.get("code_source") or "# (source unavailable)"
+        blocks.append(f"{header}\n{source}")
+    return "\n\n".join(blocks)
+
+
+def _archive_summary_block(
+    entry: dict[str, Any],
+    archive: dict[str, dict] | None = None,
+) -> str:
     config_snapshot = dict(entry["config_snapshot"])
     parent_snapshot = entry.get("parent_snapshot")
     changed_fields = []
@@ -781,19 +964,53 @@ def _archive_summary_block(entry: dict[str, Any]) -> str:
     primer = _named_mechanic_primer(config_snapshot)
     if primer:
         lines.extend(["named_mechanic_primer:", primer])
+    caution = _joint_mechanic_caution(config_snapshot)
+    if caution:
+        lines.extend(["joint_mechanic_caution:", caution])
     if parent_snapshot:
         lines.extend(["parent_snapshot:", json.dumps(parent_snapshot, indent=2)])
-    if entry.get("code_kind"):
-        lines.append(f"code_kind: {entry['code_kind']}")
-    if entry.get("code_key"):
-        lines.append(f"code_key: {entry['code_key']}")
-    if entry.get("code_source"):
+
+    # Surface every active gen-* mechanic on this config (not just the most
+    # recently introduced one). Falls back to the entry's own code_source if
+    # the lineage walk can't reach the introducing ancestor.
+    active = _active_generated_mechanics(entry, archive)
+    if active:
+        lines.append("active_generated_mechanics:")
+        lines.append(_format_active_generated_block(active))
+    elif entry.get("code_source"):
+        # No gen-* fields on this config but the entry itself carries source —
+        # legacy fallback for synthesized one-off entries.
+        if entry.get("code_kind"):
+            lines.append(f"code_kind: {entry['code_kind']}")
+        if entry.get("code_key"):
+            lines.append(f"code_key: {entry['code_key']}")
         lines.extend(["generated_mechanic_source:", entry["code_source"]])
     return "\n".join(lines)
 
 
-def build_agent_mutation_prompt(entry: dict[str, Any]) -> str:
-    archive_block = _archive_summary_block(entry)
+_EXEMPLAR_AGENTS: tuple[type, ...] = (
+    _ExemplarFlagFirstAgent,
+    _ExemplarChainReactionAgent,
+)
+
+
+def _exemplar_agents_block() -> str:
+    """Render the exemplar subclasses' source so the prompt can embed them."""
+    blocks: list[str] = []
+    for cls in _EXEMPLAR_AGENTS:
+        try:
+            blocks.append(inspect.getsource(cls).rstrip())
+        except OSError:
+            continue
+    return "\n\n".join(blocks)
+
+
+def build_agent_mutation_prompt(
+    entry: dict[str, Any],
+    archive: dict[str, dict] | None = None,
+) -> str:
+    archive_block = _archive_summary_block(entry, archive)
+    exemplars_block = _exemplar_agents_block()
 
     return f"""You are improving a self-contained PAFG-style Minesweeper agent for ONE generated game mechanic from archive.json.
 
@@ -817,6 +1034,9 @@ Available game API:
 
 Allowed adaptation surface:
 {_HOOK_SURFACE}
+
+Exemplar subclasses (the SHAPE you should aim for — short, hook-only):
+{exemplars_block}
 
 Return JSON only:
 {{
@@ -861,9 +1081,10 @@ def generate_agent_candidate(
     *,
     model: str = MODEL_NAME,
     max_tokens: int = DEFAULT_MAX_TOKENS,
+    archive: dict[str, dict] | None = None,
 ) -> tuple[dict[str, Any] | None, str]:
     client = _get_client()
-    prompt = build_agent_mutation_prompt(entry)
+    prompt = build_agent_mutation_prompt(entry, archive)
     token_budget = max_tokens
     last_error = None
 
@@ -884,7 +1105,7 @@ def generate_agent_candidate(
             # Retry likely truncation/format failures with a stricter, shorter ask.
             if _attempt < 2:
                 prompt = (
-                    build_agent_mutation_prompt(entry)
+                    build_agent_mutation_prompt(entry, archive)
                     + "\n\nYour previous answer was invalid or incomplete."
                       " Retry with a SHORTER class, at most 2 overridden hooks,"
                       " and return ONLY one complete JSON object."
@@ -984,6 +1205,7 @@ def _build_repair_prompt(
     entry: dict[str, Any],
     candidate: dict[str, Any],
     error: str,
+    archive: dict[str, dict] | None = None,
 ) -> str:
     return f"""Your previous PAFG agent candidate failed during evaluation.
 
@@ -994,7 +1216,7 @@ Previous candidate code (class `{candidate.get("name")}`):
 {candidate.get("code")}
 
 Original task context:
-{_archive_summary_block(entry)}
+{_archive_summary_block(entry, archive)}
 
 Available game API:
 {_GAME_API_CHEATSHEET}
@@ -1027,9 +1249,10 @@ def repair_agent_candidate(
     *,
     model: str = MODEL_NAME,
     max_tokens: int = DEFAULT_MAX_TOKENS,
+    archive: dict[str, dict] | None = None,
 ) -> dict[str, Any] | None:
     client = _get_client()
-    prompt = _build_repair_prompt(entry, candidate, error)
+    prompt = _build_repair_prompt(entry, candidate, error, archive)
     try:
         response = client.chat.completions.create(
             model=model,

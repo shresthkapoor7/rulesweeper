@@ -15,6 +15,13 @@ class Neighborhood(ABC):
         """Return (dr, dc) pairs. Must not include (0, 0)."""
         ...
 
+    def summary(self) -> dict:
+        """
+        Default summary lists the offsets so an agent can read the topology
+        without poking at the private class-level constant.
+        """
+        return {"offsets": list(self.offsets())}
+
 
 class MooreNeighborhood(Neighborhood):
     """Standard 8-connected neighborhood — the canonical minesweeper seed."""

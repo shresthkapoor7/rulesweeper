@@ -16,6 +16,7 @@ import argparse
 import dataclasses
 import inspect
 import json
+import math
 import os
 import random
 import re
@@ -35,8 +36,11 @@ from agents.pafg_archive_agent import (
 
 # Default agent panel — resolved against AGENTS at run time so the panel
 # automatically degrades when optional agents (e.g. neural, which needs torch)
-# aren't installed.
-DEFAULT_AGENTS = ["random", "pafg", "neural"]
+# aren't installed. `pafg-llm` writes a fresh per-mechanic PAFG subclass via
+# LLM and is the fairest agent for non-default mechanics — it stays in the
+# default panel. `neural` is omitted by default because it consistently
+# under-performs random + PAFG on the mechanic variants this pipeline targets.
+DEFAULT_AGENTS = ["random", "pafg", "pafg-llm"]
 
 # Special panel name: when included, mortar generates a per-mechanic
 # LLM-tuned PAFG subclass before each panel evaluation rather than looking it
@@ -167,6 +171,245 @@ def load_archive(path: str = "archive.json") -> None:
         ARCHIVE[key] = entry
 
 
+# Default skill_spread imputed for entries that have not been evaluated yet.
+# Picked to roughly match the median admitted spread so unevaluated parents
+# (e.g. the seed before its first use) compete on roughly even footing with
+# evaluated peers — they get selected, evaluated lazily, and then float to
+# their real position next iteration.
+_UNEVALUATED_SPREAD = 0.30
+
+
+def _entry_spread(entry: dict) -> float:
+    """Skill spread for an archive entry; falls back to a neutral default."""
+    fitness = entry.get("fitness")
+    if not fitness or "skill_spread" not in fitness:
+        return _UNEVALUATED_SPREAD
+    return float(fitness["skill_spread"])
+
+
+def _archive_reverse_index(archive: dict[str, dict]) -> dict[str, dict]:
+    """Map config_key(snapshot) -> entry, for lineage walks."""
+    return {_config_key(e["config_snapshot"]): e for e in archive.values()}
+
+
+def _lineage_trace(
+    entry: dict,
+    archive: dict[str, dict],
+    *,
+    max_depth: int = 5,
+) -> list[dict]:
+    """
+    Walk ``entry``'s parent chain. Returns the chain ordered oldest -> newest
+    (entry itself last). Capped at ``max_depth`` most recent steps so deep
+    lineages don't bloat the prompt.
+
+    Each step is matched against the archive via the parent's full config
+    snapshot — that's the only handle we have, since entries don't carry an
+    explicit parent_id.
+    """
+    by_key = _archive_reverse_index(archive)
+    chain = [entry]
+    cur = entry
+    while True:
+        parent_snapshot = cur.get("parent_snapshot")
+        if not parent_snapshot:
+            break
+        parent_entry = by_key.get(_config_key(parent_snapshot))
+        if parent_entry is None:
+            break
+        chain.append(parent_entry)
+        cur = parent_entry
+        if len(chain) > 32:  # safety
+            break
+    chain.reverse()
+    if len(chain) > max_depth:
+        chain = chain[-max_depth:]
+    return chain
+
+
+def _select_peers(
+    archive: dict[str, dict],
+    exclude_keys: set[str],
+    *,
+    top_k: int = 8,
+    random_k: int = 3,
+    rng: random.Random | None = None,
+) -> list[dict]:
+    """
+    Return up to ``top_k`` highest-spread peers plus up to ``random_k`` random
+    peers (without overlap), excluding any entry whose config_key is in
+    ``exclude_keys`` (typically the parent's lineage).
+    """
+    rng = rng or random
+    candidates = [
+        e for e in archive.values()
+        if _config_key(e["config_snapshot"]) not in exclude_keys
+    ]
+    if not candidates:
+        return []
+    by_spread = sorted(candidates, key=_entry_spread, reverse=True)
+    top = by_spread[:top_k]
+    top_keys = {_config_key(e["config_snapshot"]) for e in top}
+    remaining = [
+        e for e in candidates
+        if _config_key(e["config_snapshot"]) not in top_keys
+    ]
+    rng.shuffle(remaining)
+    return top + remaining[:random_k]
+
+
+def _format_lineage_block(chain: list[dict]) -> str:
+    if len(chain) <= 1:
+        return "  (no ancestors — this parent is a seed)"
+    lines = []
+    for entry in chain:
+        spread = _entry_spread(entry)
+        gen = entry.get("generation", 0)
+        desc = entry.get("description") or "(no description)"
+        lines.append(f"  Gen {gen} | spread={spread:+.2f} | {desc}")
+    return "\n".join(lines)
+
+
+def _format_peers_block(peers: list[dict]) -> str:
+    if not peers:
+        return "  (no other entries in archive)"
+    lines = []
+    for entry in peers:
+        spread = _entry_spread(entry)
+        gen = entry.get("generation", 0)
+        desc = entry.get("description") or "(no description)"
+        lines.append(f"  Gen {gen} | spread={spread:+.2f} | {desc}")
+    return "\n".join(lines)
+
+
+_GEN_FIELDS: tuple[str, ...] = (
+    "mine_behavior", "reveal_strategy", "info_strategy",
+    "neighborhood", "win_condition",
+)
+
+
+def _format_active_gen_mechanics(
+    parent_entry: dict,
+    lineage_chain: list[dict],
+) -> str:
+    """
+    For each field on the parent whose value starts with ``gen-``, find the
+    lineage entry that introduced that mechanic and emit its description and
+    full source. Empty string if no generated mechanics are active.
+
+    The lookup walks the lineage chain (parent included) and matches on
+    ``code_kind == field`` and ``code_key == value`` — that's the contract
+    ``run_mortar_step`` writes when admitting a code-mode mutation.
+    """
+    snapshot = parent_entry.get("config_snapshot", {})
+    blocks: list[str] = []
+    for field in _GEN_FIELDS:
+        value = snapshot.get(field)
+        if not (isinstance(value, str) and value.startswith("gen-")):
+            continue
+        introducer = next(
+            (
+                e for e in lineage_chain
+                if e.get("code_kind") == field and e.get("code_key") == value
+            ),
+            None,
+        )
+        if introducer is None:
+            blocks.append(
+                f"# Active mechanic: {field}={value}\n"
+                f"# (source unavailable — introducing entry not in lineage cap)"
+            )
+            continue
+        desc = introducer.get("description") or "(no description)"
+        source = introducer.get("code_source") or "# (no source recorded)"
+        blocks.append(
+            f"# Active mechanic: {field}={value} — {desc}\n{source}"
+        )
+    return "\n\n".join(blocks)
+
+
+def _format_archive_for_prompt(
+    parent_entry: dict,
+    archive: dict[str, dict],
+    *,
+    lineage_depth: int = 5,
+    top_k: int = 8,
+    random_k: int = 3,
+    rng: random.Random | None = None,
+) -> tuple[str, str, list[dict]]:
+    """
+    Build the lineage and peers sections for mutation prompts.
+
+    Returns ``(lineage_block, peers_block, lineage_chain)``. The chain is
+    returned so callers can reuse it for related prompt sections (e.g. inlining
+    active gen-* code in the code-mode prompt).
+    """
+    chain = _lineage_trace(parent_entry, archive, max_depth=lineage_depth)
+    exclude_keys = {_config_key(e["config_snapshot"]) for e in chain}
+    peers = _select_peers(
+        archive, exclude_keys, top_k=top_k, random_k=random_k, rng=rng,
+    )
+    return _format_lineage_block(chain), _format_peers_block(peers), chain
+
+
+_COOLDOWN_PER_ATTEMPT = 0.03
+
+
+def _entry_score(entry: dict) -> float:
+    """
+    Score an entry for parent selection: skill_spread minus a small
+    cool-down penalty per attempted child. Keeps high-spread parents at the
+    top while gently rotating through the lineage so we don't hammer the same
+    parent every iteration.
+    """
+    spread = _entry_spread(entry)
+    attempts = int(entry.get("n_children_attempted") or 0)
+    return spread - _COOLDOWN_PER_ATTEMPT * attempts
+
+
+def _select_parent(
+    archive: dict[str, dict],
+    *,
+    temperature: float = 0.2,
+    rng: random.Random | None = None,
+) -> dict:
+    """
+    Sample a parent entry weighted by ``softmax(score / temperature)``, where
+    score = skill_spread − cooldown × n_children_attempted.
+
+    Lower temperature -> more elitist (high-score parents dominate). Higher
+    temperature -> closer to uniform. ``temperature <= 0`` collapses to
+    argmax (deterministic best). Entries with no fitness yet are treated as
+    having ``_UNEVALUATED_SPREAD`` so they still get a chance to be evaluated
+    lazily.
+    """
+    rng = rng or random
+    entries = list(archive.values())
+    if not entries:
+        raise RuntimeError("Cannot select parent from empty archive.")
+    if len(entries) == 1:
+        return entries[0]
+
+    scores = [_entry_score(e) for e in entries]
+    if temperature <= 0:
+        best_idx = max(range(len(entries)), key=scores.__getitem__)
+        return entries[best_idx]
+
+    # Subtract max for numerical stability before exp.
+    max_score = max(scores)
+    weights = [math.exp((s - max_score) / temperature) for s in scores]
+    total = sum(weights)
+    if total <= 0:
+        return rng.choice(entries)
+    pick = rng.uniform(0.0, total)
+    cumulative = 0.0
+    for entry, w in zip(entries, weights):
+        cumulative += w
+        if pick <= cumulative:
+            return entry
+    return entries[-1]
+
+
 # ---------------------------------------------------------------------------
 # Timeouts
 # ---------------------------------------------------------------------------
@@ -254,17 +497,17 @@ def _get_client() -> OpenAI:
 def build_mutation_prompt(
     config: GameConfig,
     fitness: dict,
-    archive_entries: list[dict],
+    parent_entry: dict,
+    archive: dict[str, dict],
+    recent_failures: str = "",
 ) -> str:
     snapshot = dataclasses.asdict(config)
     field_ref = "\n".join(
         f"  {k}: {desc}" for k, desc in FIELD_DESCRIPTIONS.items()
     )
-    archive_summary = "\n".join(
-        f"  - {e['description']} {e['config_snapshot']}"
-        for e in archive_entries
-        if e.get("description")
-    ) or "  (empty — this is the first entry)"
+    lineage_block, peers_block, _chain = _format_archive_for_prompt(
+        parent_entry, archive,
+    )
 
     per_agent = fitness["per_agent"]
     n_games = next(iter(per_agent.values()))["n_games"]
@@ -273,6 +516,10 @@ def build_mutation_prompt(
         for name, f in per_agent.items()
     )
     spread_pct = f"{fitness['skill_spread'] * 100:+.1f}%"
+    failures_section = (
+        f"\nRecent rejected proposals from this parent (do not repeat the same mistake):\n{recent_failures}\n"
+        if recent_failures else ""
+    )
 
     return f"""You are mutating a Minesweeper GameConfig to discover novel, playable variants where SKILL MATTERS.
 
@@ -290,8 +537,16 @@ Current fitness ({n_games} games per agent):
 Field reference:
 {field_ref}
 
-Already in archive:
-{archive_summary}
+Lineage (oldest → this parent; spread is the admitted skill_spread for each step):
+{lineage_block}
+
+Other archive entries (top by skill_spread + a few random):
+{peers_block}
+{failures_section}
+Complementarity over compounding:
+- If the lineage already has obfuscation (info_strategy != "count-mines", parity, noisy-count, distance, direction), prefer adding *informative* mechanics (extra clues, larger neighborhoods, extra health, lower mine_count).
+- If the lineage already has aggression (chain-reaction, drifting mines, low health, high damage, single reveal, no safe-first-click), prefer adding *clarity* (lower damage, extra health, count-mines info, cascade reveal).
+- Stacking two punishing mechanics on the same lineage usually produces unplayable configs.
 
 Propose ONE mutation that changes 1–3 fields to create an interesting gameplay variant.
 Aim for a LARGE skill spread: configs that are playable for the constraint solver but punishing for random play.
@@ -345,6 +600,119 @@ def _validate_changes(
         return None
 
     return validated
+
+
+# Fields whose default value MORTAR treats as "vanilla". Used to count how
+# many non-default mechanics are simultaneously active on a config — three or
+# more is a strong predictor of unplayability.
+_DEFAULT_FIELD_VALUES: dict[str, object] = {
+    "info_strategy":   "count-mines",
+    "reveal_strategy": "cascade",
+    "mine_behavior":   "static",
+    "neighborhood":    "moore",
+    "win_condition":   "standard",
+    "safe_first_click": True,
+}
+
+
+def _describe_config_warnings(snapshot: dict) -> list[str]:
+    """
+    Return human-readable warnings for known-bad mechanic combinations.
+
+    Per the audit decision, these are warnings only — the +0.10 skill_spread
+    gate still decides admission. The warnings are printed to stdout and fed
+    into the per-parent failure-feedback ring buffer (P6) so subsequent LLM
+    calls see them.
+    """
+    warnings: list[str] = []
+    win_condition = snapshot.get("win_condition")
+    flag_limit = snapshot.get("flag_limit")
+    mine_count = snapshot.get("mine_count", 0)
+    mine_behavior = snapshot.get("mine_behavior")
+    starting_health = snapshot.get("starting_health", 1)
+    mine_damage = snapshot.get("mine_damage", 1)
+    safe_first_click = snapshot.get("safe_first_click", True)
+    rows = snapshot.get("rows", 16)
+    cols = snapshot.get("cols", 16)
+
+    if (
+        win_condition == "flag-all-mines"
+        and flag_limit is not None
+        and flag_limit < mine_count
+    ):
+        warnings.append(
+            f"flag-all-mines win requires every mine flagged but flag_limit={flag_limit} "
+            f"< mine_count={mine_count} — winning is mathematically impossible."
+        )
+
+    if mine_behavior == "chain-reaction" and starting_health <= mine_damage:
+        warnings.append(
+            f"chain-reaction with starting_health={starting_health} and mine_damage={mine_damage} "
+            f"means hitting any mine triggers an unsurvivable cluster cascade."
+        )
+
+    if not safe_first_click and rows * cols > 0:
+        density = mine_count / (rows * cols)
+        if density >= 0.5:
+            warnings.append(
+                f"safe_first_click=False with mine density {density:.2f} (>= 0.5) "
+                f"makes random play almost certainly die on its first click."
+            )
+
+    nondefault_count = sum(
+        1 for field, default in _DEFAULT_FIELD_VALUES.items()
+        if snapshot.get(field) != default
+    )
+    if nondefault_count >= 3:
+        nondefault_fields = [
+            f"{field}={snapshot.get(field)!r}"
+            for field, default in _DEFAULT_FIELD_VALUES.items()
+            if snapshot.get(field) != default
+        ]
+        warnings.append(
+            f"{nondefault_count} non-default mechanics simultaneously active "
+            f"({', '.join(nondefault_fields)}) — compound mechanic stacks "
+            f"frequently fall below the playability gate."
+        )
+
+    return warnings
+
+
+# Per-parent rolling buffer of rejected proposals. Lifetime: one
+# run_mortar_loop invocation. Helps the LLM avoid re-proposing the same
+# bad mutation when its parent is sampled repeatedly.
+_FAILURE_RING_SIZE = 3
+FailureBuffer = dict[str, list[dict]]
+
+
+def _record_failure(
+    buffer: FailureBuffer,
+    parent_key: str,
+    description: str,
+    reason: str,
+    warnings: list[str] | None = None,
+) -> None:
+    """Append a rejection to the per-parent ring; trim to most recent N."""
+    record = {"description": description or "(no description)", "reason": reason}
+    if warnings:
+        record["warnings"] = warnings
+    bucket = buffer.setdefault(parent_key, [])
+    bucket.append(record)
+    if len(bucket) > _FAILURE_RING_SIZE:
+        del bucket[: len(bucket) - _FAILURE_RING_SIZE]
+
+
+def _format_recent_failures(buffer: FailureBuffer, parent_key: str) -> str:
+    """Render the rejection ring for a parent as a prompt block; empty if none."""
+    bucket = buffer.get(parent_key) or []
+    if not bucket:
+        return ""
+    lines = []
+    for i, rec in enumerate(bucket, 1):
+        lines.append(f"  {i}. \"{rec['description']}\" — REJECTED: {rec['reason']}")
+        for w in rec.get("warnings") or []:
+            lines.append(f"     warning: {w}")
+    return "\n".join(lines)
 
 
 def parse_mutation_response(
@@ -464,21 +832,24 @@ def _exemplar_block(kind: str) -> str:
 def build_code_mutation_prompt(
     base_config: GameConfig,
     fitness: dict,
-    archive_entries: list[dict],
+    parent_entry: dict,
+    archive: dict[str, dict],
     kind: str,
+    recent_failures: str = "",
 ) -> str:
     """
     Build the prompt for code-mode mutation. `kind` is one of
-    "mine_behavior", "reveal_strategy", "info_strategy", "neighborhood".
+    "mine_behavior", "reveal_strategy", "info_strategy", "neighborhood",
+    "win_condition".
     """
     abc_cls, _, _ = KIND_SPEC[kind]
     snapshot = dataclasses.asdict(base_config)
 
-    archive_summary = "\n".join(
-        f"  - {e['description']}"
-        for e in archive_entries
-        if e.get("description")
-    ) or "  (empty)"
+    lineage_block, peers_block, chain = _format_archive_for_prompt(
+        parent_entry, archive,
+    )
+
+    active_gen_block = _format_active_gen_mechanics(parent_entry, chain)
 
     per_agent = fitness["per_agent"]
     n_games = next(iter(per_agent.values()))["n_games"]
@@ -494,6 +865,15 @@ def build_code_mutation_prompt(
     if kind == "mine_behavior":
         action_section = f"\n== Action dict schema ==\n\n{_ACTION_DICT_SCHEMA}\n"
 
+    active_gen_section = (
+        f"\n== Active generated mechanics on this parent ==\n\n{active_gen_block}\n"
+        if active_gen_block else ""
+    )
+    failures_section = (
+        f"\n== Recent rejected proposals from this parent (do not repeat) ==\n\n{recent_failures}\n"
+        if recent_failures else ""
+    )
+
     return f"""You are mutating Minesweeper by writing a NEW {kind} subclass in Python.
 
 Goal: discover novel, playable variants where SKILL MATTERS — a constraint solver should clearly outperform random play. Configs where everyone scores the same are boring.
@@ -505,9 +885,12 @@ Parent fitness ({n_games} games per agent):
 {agent_lines}
   skill_spread (best non-random agent − random progress): {spread_pct}
 
-Already in archive (do not re-create these):
-{archive_summary}
+Lineage (oldest → this parent; spread is the admitted skill_spread for each step):
+{lineage_block}
 
+Other archive entries (top by skill_spread + a few random; do not re-create):
+{peers_block}
+{active_gen_section}{failures_section}
 == Interface to implement ==
 
 {abc_source}
@@ -524,6 +907,12 @@ Already in archive (do not re-create these):
 - Do not call game.reveal() or game.flag() — the framework re-checks state after your hook returns.
 - Do not perform I/O or read external state.
 - Class name should be CamelCase and descriptive of the mechanic.
+
+== Complementarity over compounding ==
+
+- If the lineage already has obfuscation (info_strategy != "count-mines", parity, noisy-count, distance, direction), prefer authoring a mechanic that adds *clarity* or *survivability*.
+- If the lineage already has aggression (chain-reaction, drifting, low health, high damage, single reveal), prefer authoring a mechanic that gives the player more *information* or *agency*.
+- Stacking another punishing mechanic on a lineage that's already brutal will likely fall below the playability gate.
 
 == Examples (existing implementations) ==
 
@@ -623,13 +1012,24 @@ def _build_panel(agent_names: list[str]) -> dict:
     return panel
 
 
-def _build_pafg_llm_entry(snapshot: dict, description: str, code_meta: dict) -> dict:
-    """Synthesize the entry dict the pafg-llm prompt expects."""
+def _build_pafg_llm_entry(
+    snapshot: dict,
+    description: str,
+    code_meta: dict,
+    parent_snapshot: dict | None = None,
+    generation: int = 0,
+) -> dict:
+    """Synthesize the entry dict the pafg-llm prompt expects.
+
+    ``parent_snapshot`` is what makes the lineage walk effective for stacked
+    gen-* mechanics: passing the real parent lets ``_active_generated_mechanics``
+    follow the chain through ARCHIVE and surface every ancestor's code source.
+    """
     return {
         "config_snapshot": snapshot,
         "description":     description or "",
-        "generation":      0,
-        "parent_snapshot": None,
+        "generation":      generation,
+        "parent_snapshot": parent_snapshot,
         "code_kind":       code_meta.get("code_kind"),
         "code_source":     code_meta.get("code_source"),
         "code_key":        code_meta.get("code_key"),
@@ -640,6 +1040,8 @@ def _generate_pafg_llm_class(
     snapshot: dict,
     description: str,
     code_meta: dict,
+    parent_snapshot: dict | None = None,
+    archive: dict | None = None,
 ) -> tuple[type | None, dict | None]:
     """
     Generate a fresh per-mechanic pafg-llm subclass via LLM.
@@ -647,9 +1049,11 @@ def _generate_pafg_llm_class(
     Returns (compiled_class, candidate_dict) on success, (None, None) on
     failure. Never raises — mortar continues with the rest of the panel.
     """
-    entry = _build_pafg_llm_entry(snapshot, description, code_meta)
+    entry = _build_pafg_llm_entry(
+        snapshot, description, code_meta, parent_snapshot=parent_snapshot,
+    )
     try:
-        candidate, _raw = generate_agent_candidate(entry)
+        candidate, _raw = generate_agent_candidate(entry, archive=archive)
     except Exception as e:
         print(f"  pafg-llm generation failed ({type(e).__name__}: {e}); dropping slot.")
         return None, None
@@ -672,6 +1076,8 @@ def _attempt_pafg_llm_repair(
     error: str,
     config: GameConfig,
     n_games: int,
+    parent_snapshot: dict | None = None,
+    archive: dict | None = None,
 ) -> tuple[dict | None, dict | None]:
     """
     One-shot repair: ask the LLM to fix a crashing pafg-llm candidate, then
@@ -682,10 +1088,12 @@ def _attempt_pafg_llm_repair(
     """
     if not candidate:
         return None, None
-    entry = _build_pafg_llm_entry(snapshot, description, code_meta)
+    entry = _build_pafg_llm_entry(
+        snapshot, description, code_meta, parent_snapshot=parent_snapshot,
+    )
     print(f"  pafg-llm crashed ({error}); attempting one repair...")
     try:
-        repaired = repair_agent_candidate(entry, candidate, error)
+        repaired = repair_agent_candidate(entry, candidate, error, archive=archive)
     except Exception as e:
         print(f"  pafg-llm repair LLM call failed ({type(e).__name__}: {e}); dropping slot.")
         return None, None
@@ -728,6 +1136,8 @@ def _materialize_panel(
     description: str,
     code_meta: dict,
     cached_agent: dict | None = None,
+    parent_snapshot: dict | None = None,
+    archive: dict | None = None,
 ) -> tuple[dict[str, type], dict | None]:
     """
     Replace the pafg-llm sentinel with a live class.
@@ -735,6 +1145,10 @@ def _materialize_panel(
     If a cached agent source recompiles cleanly, reuse it (no LLM call).
     Otherwise generate a fresh subclass. On any failure, drop the slot for
     this evaluation rather than crashing the whole step.
+
+    ``parent_snapshot`` and ``archive`` are forwarded to the pafg-llm prompt
+    so the lineage walk can surface every active gen-* mechanic, not just
+    whatever this entry directly introduced.
 
     Returns (live_panel, candidate_dict_to_persist_or_None). The second
     element is None on cache hit or when pafg-llm is not in the panel.
@@ -750,7 +1164,11 @@ def _materialize_panel(
         }
         return live_panel, None
 
-    cls, candidate = _generate_pafg_llm_class(snapshot, description, code_meta)
+    cls, candidate = _generate_pafg_llm_class(
+        snapshot, description, code_meta,
+        parent_snapshot=parent_snapshot,
+        archive=archive,
+    )
     if cls is None:
         live_panel = {
             name: value for name, value in panel.items()
@@ -804,6 +1222,7 @@ def _tag(label: str, color: str) -> str:
 _TAG_ACCEPTED = _tag("ACCEPTED", _C_GREEN)
 _TAG_REJECTED = _tag("REJECTED", _C_YELLOW)
 _TAG_SKIPPED  = _tag("SKIPPED",  _C_DIM)
+_TAG_WARN     = _tag("WARN",     _C_CYAN)
 
 
 def _format_per_agent(per_agent: dict[str, dict]) -> str:
@@ -825,6 +1244,7 @@ def run_mortar_step(
     mode: str = "param",
     code_kind: str | None = None,
     admit_all: bool = False,
+    failure_buffer: FailureBuffer | None = None,
 ) -> dict | None:
     """
     Run one MORTAR iteration. `mode` is "param" or "code"; "code" requires
@@ -835,6 +1255,9 @@ def run_mortar_step(
     """
     snapshot = base_entry["config_snapshot"]
     base_config = GameConfig(**snapshot)
+    parent_key = _config_key(snapshot)
+    if failure_buffer is None:
+        failure_buffer = {}
 
     # Lazy: evaluate the parent if it's never been measured.
     fitness = base_entry.get("fitness")
@@ -848,6 +1271,8 @@ def run_mortar_step(
             base_entry.get("description", ""),
             parent_code_meta,
             cached_agent=base_entry.get("pafg_llm_agent"),
+            parent_snapshot=base_entry.get("parent_snapshot"),
+            archive=archive,
         )
         if generated_agent is not None:
             base_entry["pafg_llm_agent"] = generated_agent
@@ -876,6 +1301,8 @@ def run_mortar_step(
                 errors.get(PAFG_LLM_AGENT_NAME, "unknown"),
                 base_config,
                 n_games,
+                parent_snapshot=base_entry.get("parent_snapshot"),
+                archive=archive,
             )
             if repaired_stats is not None:
                 per_agent[PAFG_LLM_AGENT_NAME] = repaired_stats
@@ -901,19 +1328,24 @@ def run_mortar_step(
         temperature = 0.8
 
     client = _get_client()
-    archive_entries = list(archive.values())
 
     new_config: GameConfig | None = None
     description: str = ""
     code_meta: dict = {"code_kind": None, "code_source": None, "code_key": None}
 
+    recent_failures = _format_recent_failures(failure_buffer, parent_key)
+
     for attempt in range(3):
         if mode == "code":
             prompt = build_code_mutation_prompt(
-                base_config, fitness, archive_entries, code_kind
+                base_config, fitness, base_entry, archive, code_kind,
+                recent_failures=recent_failures,
             )
         else:
-            prompt = build_mutation_prompt(base_config, fitness, archive_entries)
+            prompt = build_mutation_prompt(
+                base_config, fitness, base_entry, archive,
+                recent_failures=recent_failures,
+            )
 
         try:
             response = client.chat.completions.create(
@@ -959,16 +1391,32 @@ def run_mortar_step(
 
     if new_config is None:
         print("  Failed to produce a valid config after 3 attempts.")
+        _record_failure(
+            failure_buffer, parent_key,
+            description=description,
+            reason="LLM produced no parseable / valid mutation after 3 attempts",
+        )
         return None
 
     if description:
         print(f"  {_C_CYAN}Testing:{_C_RESET} {description}")
 
-    # Evaluate the new config with the full panel. For pafg-llm we generate
-    # a fresh per-mechanic subclass before evaluating.
+    # Surface known-bad combos as warnings (warn-and-admit-all). The +0.10
+    # skill_spread gate still decides admission below; warnings are fed into
+    # the per-parent rejection-feedback buffer if this mutation is rejected.
     new_snapshot = dataclasses.asdict(new_config)
+    config_warnings = _describe_config_warnings(new_snapshot)
+    for w in config_warnings:
+        print(f"  {_TAG_WARN} {w}")
+
+    # Evaluate the new config with the full panel. For pafg-llm we generate
+    # a fresh per-mechanic subclass before evaluating. The new config's
+    # parent IS base_entry, so its lineage walks through base_entry into the
+    # archive — that's how multi-stack gen-* mechanics get surfaced.
     live_panel, generated_agent = _materialize_panel(
         panel, new_snapshot, description, code_meta,
+        parent_snapshot=snapshot,
+        archive=archive,
     )
     try:
         per_agent, crashed, errors = _evaluate_with_timeout(
@@ -976,11 +1424,23 @@ def run_mortar_step(
         )
     except EvalTimeout as e:
         print(f"  {_TAG_REJECTED} eval timed out ({e})")
+        _record_failure(
+            failure_buffer, parent_key,
+            description=description,
+            reason=f"evaluation exceeded {EVAL_TIMEOUT_SECONDS}s wall clock",
+            warnings=config_warnings,
+        )
         return None
     except Exception as e:
         # Generated mechanic crashed at runtime — smoke test missed it.
         # Reject the mutation and continue the loop.
         print(f"  {_TAG_REJECTED} eval crashed ({type(e).__name__}: {e})")
+        _record_failure(
+            failure_buffer, parent_key,
+            description=description,
+            reason=f"evaluation crashed ({type(e).__name__}: {e})",
+            warnings=config_warnings,
+        )
         return None
     if PAFG_LLM_AGENT_NAME in crashed:
         repaired, repaired_stats = _attempt_pafg_llm_repair(
@@ -991,6 +1451,8 @@ def run_mortar_step(
             errors.get(PAFG_LLM_AGENT_NAME, "unknown"),
             new_config,
             n_games,
+            parent_snapshot=snapshot,
+            archive=archive,
         )
         if repaired_stats is not None:
             per_agent[PAFG_LLM_AGENT_NAME] = repaired_stats
@@ -1000,6 +1462,12 @@ def run_mortar_step(
             generated_agent = None
     if not per_agent:
         print(f"  {_TAG_REJECTED} every agent in the panel crashed on this config")
+        _record_failure(
+            failure_buffer, parent_key,
+            description=description,
+            reason="every agent in the panel crashed on this config",
+            warnings=config_warnings,
+        )
         return None
     new_fitness = _multi_fitness(per_agent)
 
@@ -1019,6 +1487,12 @@ def run_mortar_step(
         )
         if not admit_all:
             print(f"  {_TAG_REJECTED} {msg}")
+            _record_failure(
+                failure_buffer, parent_key,
+                description=description,
+                reason=f"skill_spread={spread:+.3f} below playability gate {spread_threshold:+.2f}",
+                warnings=config_warnings,
+            )
             return None
         print(f"  {_C_DIM}[admit-all]{_C_RESET} {msg}")
 
@@ -1063,6 +1537,7 @@ def run_mortar_loop(
     agent_names: list[str] | None = None,
     mode: str = "mixed",
     admit_all: bool = False,
+    parent_temperature: float = 0.2,
 ) -> None:
     """
     Run the MORTAR evolution loop for n_iterations steps.
@@ -1075,6 +1550,7 @@ def run_mortar_loop(
     panel = _build_panel(agent_names or DEFAULT_AGENTS)
     print(f"Agent panel: {', '.join(panel)}")
     print(f"Mutation mode: {mode}")
+    print(f"Parent selection: softmax(skill_spread / {parent_temperature:.2f})")
     if admit_all:
         print("Admission gates: DISABLED (--admit-all) — every parseable mutation will be admitted.")
 
@@ -1085,17 +1561,26 @@ def run_mortar_loop(
         print(f"Reregistered {n_loaded} generated mechanic(s) from archive.")
     save_archive(archive_path)  # persist seed entry + drop any unloadable code entries
 
+    failure_buffer: FailureBuffer = {}
     accepted = 0
     for i in range(n_iterations):
         if i > 0 and delay > 0:
             time.sleep(delay)
 
-        parent_entry = random.choice(list(ARCHIVE.values()))
+        parent_entry = _select_parent(ARCHIVE, temperature=parent_temperature)
         desc = parent_entry.get("description", "?")
+        parent_spread = _entry_spread(parent_entry)
+        parent_entry["n_children_attempted"] = int(
+            parent_entry.get("n_children_attempted") or 0
+        ) + 1
 
         iter_mode, code_kind = _resolve_iter_mode(mode)
         kind_label = f"+{code_kind}" if iter_mode == "code" else ""
-        header = f"{_C_BOLD}[{i+1}/{n_iterations}]{_C_RESET} {iter_mode}{kind_label}  parent: {desc}"
+        header = (
+            f"{_C_BOLD}[{i+1}/{n_iterations}]{_C_RESET} {iter_mode}{kind_label}  "
+            f"parent (gen={parent_entry.get('generation', 0)}, "
+            f"spread={parent_spread:+.2f}): {desc}"
+        )
         print(f"\n{header}")
 
         result = run_mortar_step(
@@ -1104,11 +1589,16 @@ def run_mortar_loop(
             mode=iter_mode,
             code_kind=code_kind,
             admit_all=admit_all,
+            failure_buffer=failure_buffer,
         )
         if result is None:
             # run_mortar_step has already printed a tagged reason.
+            save_archive(archive_path)  # persist the bumped attempt counter
             continue
 
+        parent_entry["n_children_admitted"] = int(
+            parent_entry.get("n_children_admitted") or 0
+        ) + 1
         key = _config_key(result["config_snapshot"])
         if key in ARCHIVE:
             print(f"  {_TAG_SKIPPED} duplicate config")
@@ -1145,6 +1635,11 @@ if __name__ == "__main__":
                    help="Skip the skill-spread admission gate; admit every parseable "
                         "mutation regardless of whether any agent beats random. Use to "
                         "explore the wild edge of the mechanic space.")
+    p.add_argument("--parent-temperature", type=float, default=0.2,
+                   help="Softmax temperature for parent selection over skill_spread. "
+                        "Lower = more elitist (high-spread parents dominate); higher = "
+                        "closer to uniform random. Set to 0 for argmax (deterministic "
+                        "best). Default: 0.2.")
     args = p.parse_args()
 
     run_mortar_loop(
@@ -1155,4 +1650,5 @@ if __name__ == "__main__":
         agent_names=args.agents,
         mode=args.mode,
         admit_all=args.admit_all,
+        parent_temperature=args.parent_temperature,
     )

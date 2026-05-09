@@ -30,6 +30,15 @@ class MineBehavior(ABC):
     ) -> None:
         ...
 
+    def summary(self) -> dict:
+        """
+        Return key parameters for this behavior in a flat dict. Used by
+        ``MinesweeperGame.behavior_summary()`` so agents (notably pafg-llm)
+        can introspect mechanic params at runtime without poking at private
+        attributes. Default: empty dict; subclasses with knobs should override.
+        """
+        return {}
+
 
 class StaticMines(MineBehavior):
     """Default — preserves canonical minesweeper. Mines never move or react."""
@@ -56,6 +65,9 @@ class DriftingMines(MineBehavior):
     ) -> None:
         super().__init__(seed)
         self.drift_prob = drift_prob if drift_prob is not None else self.DEFAULT_DRIFT_PROB
+
+    def summary(self) -> dict:
+        return {"drift_prob": self.drift_prob}
 
     def on_post_action(self, board, game, action):
         moved = False
