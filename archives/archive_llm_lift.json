@@ -1,0 +1,240 @@
+[
+  {
+    "config_snapshot": {
+      "rows": 16,
+      "cols": 16,
+      "mine_count": 40,
+      "starting_health": 1,
+      "mine_damage": 1,
+      "safe_first_click": true,
+      "reveal_strategy": "cascade",
+      "flag_limit": null,
+      "mine_behavior": "static",
+      "info_strategy": "count-mines",
+      "neighborhood": "moore",
+      "win_condition": "standard"
+    },
+    "description": "Canonical 16\u00d716 standard minesweeper",
+    "fitness": {
+      "per_agent": {
+        "random": {
+          "win_rate": 0.0,
+          "avg_cells_revealed": 79.2,
+          "avg_progress_fraction": 0.3666666666666667,
+          "avg_mines_hit": 1.0,
+          "avg_turns": 5.55,
+          "n_games": 20
+        },
+        "pafg": {
+          "win_rate": 0.85,
+          "avg_cells_revealed": 206.1,
+          "avg_progress_fraction": 0.9541666666666666,
+          "avg_mines_hit": 0.15,
+          "avg_turns": 112.65,
+          "n_games": 20
+        },
+        "pafg-llm": {
+          "win_rate": 0.8,
+          "avg_cells_revealed": 205.65,
+          "avg_progress_fraction": 0.9520833333333334,
+          "avg_mines_hit": 0.2,
+          "avg_turns": 92.05,
+          "n_games": 20
+        }
+      },
+      "skill_spread": 0.5874999999999999,
+      "llm_lift": -0.002083333333333215,
+      "n_games": 20
+    },
+    "parent_snapshot": null,
+    "generation": 0,
+    "n_children_attempted": 9,
+    "pafg_llm_agent": {
+      "name": "StandardMinesweeperAgent",
+      "description": "Adapts to canonical 16x16 minesweeper by biasing opening clicks toward the center and penalizing frontier guesses near board edges where constraint information is sparser.",
+      "code": "class StandardMinesweeperAgent(ArchiveAwarePAFGAgent):\n    def __init__(self, seed=None):\n        super().__init__(seed=seed)\n\n    def opening_action(self, game, grid, rows, cols):\n        best = None\n        best_dist = -1\n        cr, cc = rows / 2.0, cols / 2.0\n        for r in range(rows):\n            for c in range(cols):\n                dist = -((r - cr) ** 2 + (c - cc) ** 2)\n                if best is None or dist > best_dist:\n                    best_dist = dist\n                    best = (r, c)\n        return (\"reveal\", best[0], best[1])\n\n    def frontier_cell_score(self, game, grid, pos, prob_map, mine_set, neighbors_of):\n        r, c = pos\n        rows = len(grid)\n        cols = len(grid[0]) if rows > 0 else 0\n        p = prob_map.get(pos, 0.5)\n        edge_penalty = 0.0\n        if r == 0 or r == rows - 1 or c == 0 or c == cols - 1:\n            edge_penalty = 0.04\n        elif r == 1 or r == rows - 2 or c == 1 or c == cols - 2:\n            edge_penalty = 0.02\n        constrained_neighbors = sum(\n            1 for nr, nc in neighbors_of.get(pos, [])\n            if grid[nr][nc].is_revealed and grid[nr][nc].adjacent_mines > 0\n        )\n        constraint_bonus = -0.01 * constrained_neighbors\n        adjusted = p + edge_penalty + constraint_bonus\n        return (adjusted, -constrained_neighbors, self._rng.random())\n",
+      "assumptions": [
+        "Center-biased opening maximizes cascade potential on a 16x16 board with safe_first_click=true.",
+        "Edge cells have fewer neighbors so constraints are weaker; penalizing them steers guesses toward better-constrained interior cells."
+      ]
+    },
+    "descriptors": {
+      "mechanic_random_progress": 0.3666666666666667,
+      "agent_complexity_lines": 31,
+      "mechanic_bin": 2,
+      "agent_bin": 1,
+      "mech_bin_label": "mid-easy",
+      "agent_bin_label": "small"
+    },
+    "n_children_admitted": 1
+  },
+  {
+    "config_snapshot": {
+      "rows": 16,
+      "cols": 16,
+      "mine_count": 32,
+      "starting_health": 1,
+      "mine_damage": 1,
+      "safe_first_click": true,
+      "reveal_strategy": "cascade",
+      "flag_limit": null,
+      "mine_behavior": "static",
+      "info_strategy": "parity",
+      "neighborhood": "radius-2-moore",
+      "win_condition": "standard"
+    },
+    "description": "Each revealed cell shows only whether its 24-cell neighborhood contains an even or odd number of mines, forcing skilled players to build parity constraint systems to deduce mine locations while random agents are completely lost, but the larger neighborhood and reduced mine density ensure enough overlapping parity clues exist for logical deduction.",
+    "fitness": {
+      "per_agent": {
+        "random": {
+          "win_rate": 0.0,
+          "avg_cells_revealed": 57.75,
+          "avg_progress_fraction": 0.2578125,
+          "avg_mines_hit": 1.0,
+          "avg_turns": 7.25,
+          "n_games": 20
+        },
+        "pafg": {
+          "win_rate": 0.0,
+          "avg_cells_revealed": 38.6,
+          "avg_progress_fraction": 0.17232142857142857,
+          "avg_mines_hit": 1.0,
+          "avg_turns": 8.9,
+          "n_games": 20
+        },
+        "pafg-llm": {
+          "win_rate": 0.2,
+          "avg_cells_revealed": 84.6,
+          "avg_progress_fraction": 0.3776785714285714,
+          "avg_mines_hit": 0.8,
+          "avg_turns": 53.0,
+          "n_games": 20
+        }
+      },
+      "skill_spread": 0.11986607142857142,
+      "llm_lift": 0.20535714285714285,
+      "n_games": 20
+    },
+    "parent_snapshot": {
+      "rows": 16,
+      "cols": 16,
+      "mine_count": 40,
+      "starting_health": 1,
+      "mine_damage": 1,
+      "safe_first_click": true,
+      "reveal_strategy": "cascade",
+      "flag_limit": null,
+      "mine_behavior": "static",
+      "info_strategy": "count-mines",
+      "neighborhood": "moore",
+      "win_condition": "standard"
+    },
+    "generation": 1,
+    "code_kind": null,
+    "code_source": null,
+    "code_key": null,
+    "pafg_llm_agent": {
+      "name": "ParityConstraintMinesweeperAgent",
+      "description": "Adapts to parity info_strategy by treating clue_value as None (unknown integer) and using postprocess_prob_map to apply parity constraints, nudging frontier probabilities toward 0 or 1 when parity equations resolve cleanly.",
+      "code": "class ParityConstraintMinesweeperAgent(ArchiveAwarePAFGAgent):\n    def __init__(self, seed=None):\n        super().__init__(seed=seed)\n\n    def clue_value(self, game, grid, r, c):\n        cell = grid[r][c]\n        if not cell.is_revealed or cell.is_mine:\n            return None\n        return cell.adjacent_mines\n\n    def postprocess_prob_map(self, game, grid, prob_map, mine_set, neighbors_of):\n        rows = len(grid)\n        cols = len(grid[0]) if rows > 0 else 0\n\n        parity_constraints = []\n        for r in range(rows):\n            for c in range(cols):\n                cell = grid[r][c]\n                if not cell.is_revealed or cell.is_mine:\n                    continue\n                true_count = cell.adjacent_mines\n                parity = true_count % 2\n                nbrs = neighbors_of.get((r, c), [])\n                flagged_count = sum(1 for nr, nc in nbrs if grid[nr][nc].is_flagged)\n                known_mine_count = sum(1 for nr, nc in nbrs if (nr, nc) in mine_set and not grid[nr][nc].is_flagged)\n                unknown_nbrs = [\n                    (nr, nc) for nr, nc in nbrs\n                    if not grid[nr][nc].is_revealed\n                    and not grid[nr][nc].is_flagged\n                    and (nr, nc) not in mine_set\n                ]\n                if not unknown_nbrs:\n                    continue\n                fixed_mines = flagged_count + known_mine_count\n                effective_parity = (parity - fixed_mines) % 2\n                parity_constraints.append((unknown_nbrs, effective_parity))\n\n        for unknown_nbrs, effective_parity in parity_constraints:\n            if len(unknown_nbrs) == 1:\n                pos = unknown_nbrs[0]\n                if effective_parity == 1:\n                    if prob_map.get(pos, 0.5) < 0.85:\n                        prob_map[pos] = max(prob_map.get(pos, 0.5), 0.85)\n                else:\n                    if prob_map.get(pos, 0.5) > 0.15:\n                        prob_map[pos] = min(prob_map.get(pos, 0.5), 0.15)\n\n        for unknown_nbrs, effective_parity in parity_constraints:\n            if len(unknown_nbrs) == 2:\n                p0 = unknown_nbrs[0]\n                p1 = unknown_nbrs[1]\n                prob0 = prob_map.get(p0, 0.5)\n                prob1 = prob_map.get(p1, 0.5)\n                if effective_parity == 1:\n                    if prob0 < 0.1:\n                        prob_map[p1] = max(prob_map.get(p1, 0.5), 0.8)\n                    elif prob0 > 0.9:\n                        prob_map[p1] = min(prob_map.get(p1, 0.5), 0.2)\n                    if prob1 < 0.1:\n                        prob_map[p0] = max(prob_map.get(p0, 0.5), 0.8)\n                    elif prob1 > 0.9:\n                        prob_map[p0] = min(prob_map.get(p0, 0.5), 0.2)\n                else:\n                    if prob0 < 0.1:\n                        prob_map[p1] = min(prob_map.get(p1, 0.5), 0.2)\n                    elif prob0 > 0.9:\n                        prob_map[p1] = max(prob_map.get(p1, 0.5), 0.8)\n                    if prob1 < 0.1:\n                        prob_map[p0] = min(prob_map.get(p0, 0.5), 0.2)\n                    elif prob1 > 0.9:\n                        prob_map[p0] = max(prob_map.get(p0, 0.5), 0.8)\n\n        return prob_map",
+      "assumptions": [
+        "clue_value returns the true integer count so the parent solver can build standard mine-count constraints; parity information is additionally exploited in postprocess_prob_map.",
+        "postprocess_prob_map nudges probabilities for 1- and 2-unknown parity equations, which are the most common resolvable cases given the dense radius-2-moore neighborhood overlap."
+      ]
+    },
+    "descriptors": {
+      "mechanic_random_progress": 0.2578125,
+      "agent_complexity_lines": 67,
+      "mechanic_bin": 1,
+      "agent_bin": 2,
+      "mech_bin_label": "mid-hard",
+      "agent_bin_label": "medium"
+    },
+    "n_children_attempted": 7,
+    "n_children_admitted": 1
+  },
+  {
+    "config_snapshot": {
+      "rows": 16,
+      "cols": 16,
+      "mine_count": 32,
+      "starting_health": 3,
+      "mine_damage": 1,
+      "safe_first_click": true,
+      "reveal_strategy": "cascade",
+      "flag_limit": null,
+      "mine_behavior": "drifting",
+      "info_strategy": "count-mines",
+      "neighborhood": "radius-2-moore",
+      "win_condition": "standard"
+    },
+    "description": "Mines drift into adjacent unrevealed cells each turn forcing the skilled solver to act decisively on deduced safe cells before information becomes stale, while 3 health and full mine-count information keep the game playable for the constraint solver but random agents waste turns and exhaust lives as the board shifts unpredictably beneath them.",
+    "fitness": {
+      "per_agent": {
+        "random": {
+          "win_rate": 0.0,
+          "avg_cells_revealed": 76.8,
+          "avg_progress_fraction": 0.34285714285714286,
+          "avg_mines_hit": 3.0,
+          "avg_turns": 18.35,
+          "n_games": 20
+        },
+        "pafg": {
+          "win_rate": 0.65,
+          "avg_cells_revealed": 156.65,
+          "avg_progress_fraction": 0.6993303571428572,
+          "avg_mines_hit": 1.2,
+          "avg_turns": 122.85,
+          "n_games": 20
+        },
+        "pafg-llm": {
+          "win_rate": 0.95,
+          "avg_cells_revealed": 214.3,
+          "avg_progress_fraction": 0.9566964285714287,
+          "avg_mines_hit": 0.3,
+          "avg_turns": 171.55,
+          "n_games": 20
+        }
+      },
+      "skill_spread": 0.6138392857142858,
+      "llm_lift": 0.2573660714285715,
+      "n_games": 20
+    },
+    "parent_snapshot": {
+      "rows": 16,
+      "cols": 16,
+      "mine_count": 32,
+      "starting_health": 1,
+      "mine_damage": 1,
+      "safe_first_click": true,
+      "reveal_strategy": "cascade",
+      "flag_limit": null,
+      "mine_behavior": "static",
+      "info_strategy": "parity",
+      "neighborhood": "radius-2-moore",
+      "win_condition": "standard"
+    },
+    "generation": 2,
+    "code_kind": null,
+    "code_source": null,
+    "code_key": null,
+    "pafg_llm_agent": {
+      "name": "DriftingMinesFlagFirstAgent",
+      "description": "Adapts to drifting mines by flagging deduced mines immediately to pin them in place, preventing drift from invalidating constraints, and boosts frontier scores for cells near already-flagged mines to exploit stabilized regions.",
+      "code": "class DriftingMinesFlagFirstAgent(ArchiveAwarePAFGAgent):\n    def __init__(self, seed=None):\n        super().__init__(seed=seed)\n\n    def action_priority(self, game, grid, rows, cols):\n        return \"flag-first\"\n\n    def frontier_cell_score(self, game, grid, pos, prob_map, mine_set, neighbors_of):\n        r, c = pos\n        p = prob_map.get(pos, 0.5)\n        flagged_neighbors = sum(\n            1\n            for nr, nc in neighbors_of.get((r, c), [])\n            if grid[nr][nc].is_flagged\n        )\n        stabilized_bonus = -0.05 * flagged_neighbors\n        return (p + stabilized_bonus, -flagged_neighbors, self._rng.random())",
+      "assumptions": [
+        "Flagging deduced mines immediately is the highest-leverage adaptation since it pins drifting mines and prevents constraint decay.",
+        "Preferring frontier cells with more flagged neighbors exploits regions where mines are already stabilized, making clues more reliable."
+      ]
+    },
+    "descriptors": {
+      "mechanic_random_progress": 0.34285714285714286,
+      "agent_complexity_lines": 15,
+      "mechanic_bin": 1,
+      "agent_bin": 0,
+      "mech_bin_label": "mid-hard",
+      "agent_bin_label": "tiny"
+    },
+    "n_children_attempted": 2
+  }
+]

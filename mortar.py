@@ -162,21 +162,34 @@ def save_archive(path: str = "archive.json") -> None:
 
 def load_archive(path: str = "archive.json") -> None:
     """Load archive entries from JSON, merging into ARCHIVE.
-    Backfills `descriptors` on any entry with fitness but no descriptors."""
+    Backfills `descriptors` and `llm_lift` on legacy entries."""
     if not os.path.exists(path):
         return
     with open(path) as f:
         entries = json.load(f)
-    n_backfilled = 0
+    n_desc_backfilled = 0
+    n_lift_backfilled = 0
     for entry in entries:
         key = _config_key(entry["config_snapshot"])
         ARCHIVE[key] = entry
         if "descriptors" not in entry:
             _attach_descriptors(entry)
             if "descriptors" in entry:
-                n_backfilled += 1
-    if n_backfilled:
-        print(f"Backfilled QD descriptors on {n_backfilled} archive entries.")
+                n_desc_backfilled += 1
+        fitness = entry.get("fitness")
+        if isinstance(fitness, dict) and "llm_lift" not in fitness:
+            per_agent = fitness.get("per_agent") or {}
+            pafg_pf = per_agent.get("pafg", {}).get("avg_progress_fraction")
+            pafg_llm_pf = per_agent.get("pafg-llm", {}).get("avg_progress_fraction")
+            if pafg_pf is not None and pafg_llm_pf is not None:
+                fitness["llm_lift"] = float(pafg_llm_pf) - float(pafg_pf)
+            else:
+                fitness["llm_lift"] = 0.0
+            n_lift_backfilled += 1
+    if n_desc_backfilled:
+        print(f"Backfilled QD descriptors on {n_desc_backfilled} archive entries.")
+    if n_lift_backfilled:
+        print(f"Backfilled llm_lift on {n_lift_backfilled} archive entries.")
 
 
 # Default skill_spread imputed for entries that have not been evaluated yet.
@@ -193,6 +206,37 @@ def _entry_spread(entry: dict) -> float:
     if not fitness or "skill_spread" not in fitness:
         return _UNEVALUATED_SPREAD
     return float(fitness["skill_spread"])
+
+
+# Admission metric: which fitness signal drives parent selection, the
+# bin-elite gate, and the playability threshold. "skill_spread" measures
+# mechanic playability (best-skilled vs random); "llm_lift" measures
+# adaptive-agent uplift (pafg-llm vs vanilla pafg). Set by run_mortar_loop
+# from the CLI flag at startup; reads in _entry_admission_score below.
+ADMISSION_METRICS: tuple[str, ...] = ("skill_spread", "llm_lift")
+_ADMISSION_METRIC: str = "skill_spread"
+
+# Imputed admission-metric value for entries without fitness yet. For
+# skill_spread we use the historical 0.30 default; for llm_lift we use 0.0
+# (neutral — no information about the gap until we measure).
+_UNEVALUATED_LIFT = 0.0
+
+
+def _entry_lift(entry: dict) -> float:
+    """LLM lift (pafg-llm − pafg progress) for an archive entry; falls back
+    to a neutral 0.0 for entries without fitness."""
+    fitness = entry.get("fitness")
+    if not fitness or "llm_lift" not in fitness:
+        return _UNEVALUATED_LIFT
+    return float(fitness["llm_lift"])
+
+
+def _entry_admission_score(entry: dict) -> float:
+    """Routed admission score: skill_spread or llm_lift, whichever the
+    active CLI flag selected."""
+    if _ADMISSION_METRIC == "llm_lift":
+        return _entry_lift(entry)
+    return _entry_spread(entry)
 
 
 def _archive_reverse_index(archive: dict[str, dict]) -> dict[str, dict]:
@@ -365,14 +409,14 @@ _COOLDOWN_PER_ATTEMPT = 0.03
 
 def _entry_score(entry: dict) -> float:
     """
-    Score an entry for parent selection: skill_spread minus a small
-    cool-down penalty per attempted child. Keeps high-spread parents at the
-    top while gently rotating through the lineage so we don't hammer the same
-    parent every iteration.
+    Score an entry for parent selection: active admission metric minus a
+    small cool-down penalty per attempted child. Keeps high-scoring parents
+    at the top while gently rotating through the lineage so we don't hammer
+    the same parent every iteration.
     """
-    spread = _entry_spread(entry)
+    score = _entry_admission_score(entry)
     attempts = int(entry.get("n_children_attempted") or 0)
-    return spread - _COOLDOWN_PER_ATTEMPT * attempts
+    return score - _COOLDOWN_PER_ATTEMPT * attempts
 
 
 # ---------------------------------------------------------------------------
@@ -495,8 +539,10 @@ def _bin_index(archive: dict[str, dict]) -> dict[tuple[int, int], list[dict]]:
 
 
 def _qd_score(entry: dict) -> float:
-    """Bin-elite score. Raw skill_spread; mirrors the playability gate."""
-    return _entry_spread(entry)
+    """Bin-elite score. Routed by the active admission metric so the
+    bin-elite gate consistently rewards whichever signal the run is
+    optimizing for."""
+    return _entry_admission_score(entry)
 
 
 def _qd_beats(candidate: dict, incumbent: dict, *, epsilon: float = 1e-6) -> bool:
@@ -1399,9 +1445,13 @@ def _materialize_panel(
 def _multi_fitness(per_agent: dict[str, dict]) -> dict:
     """Build the archive `fitness` dict from per-agent eval results.
 
-    `skill_spread` is the gap between the best-performing non-random agent and
-    the random baseline. This generalizes the original pafg-vs-random spread to
-    panels that include other skilled agents (neural, pafg-llm).
+    `skill_spread` is the gap between the best-performing non-random agent
+    and the random baseline — the playability metric.
+
+    `llm_lift` is the gap between pafg-llm and pafg progress — the
+    adaptive-agent-uplift metric. Positive when pafg-llm beats vanilla
+    pafg, negative when it overcorrects, zero when either agent is absent
+    from the panel.
     """
     random_pf = per_agent.get("random", {}).get("avg_progress_fraction", 0.0)
     non_random_pfs = [
@@ -1410,9 +1460,18 @@ def _multi_fitness(per_agent: dict[str, dict]) -> dict:
         if name != "random"
     ]
     best_skill_pf = max(non_random_pfs) if non_random_pfs else 0.0
+
+    pafg_pf = per_agent.get("pafg", {}).get("avg_progress_fraction")
+    pafg_llm_pf = per_agent.get("pafg-llm", {}).get("avg_progress_fraction")
+    if pafg_pf is None or pafg_llm_pf is None:
+        llm_lift = 0.0
+    else:
+        llm_lift = float(pafg_llm_pf) - float(pafg_pf)
+
     return {
         "per_agent":    per_agent,
         "skill_spread": best_skill_pf - random_pf,
+        "llm_lift":     llm_lift,
         "n_games":      next(iter(per_agent.values()))["n_games"],
     }
 
@@ -1705,33 +1764,39 @@ def run_mortar_step(
     _attach_descriptors(result)
     print(_format_descriptors(result))
 
-    # Admission criterion: at least one skilled agent must clear the random
-    # baseline by `spread_threshold`. Trivially-easy and trivially-hard configs
-    # are both kept — the only thing that disqualifies a config is "no agent
-    # outperforms random."
+    # Admission criterion: under the active metric, the candidate must
+    # clear `metric_threshold`. Trivially-easy and trivially-hard configs
+    # are both kept — the only thing that disqualifies a config is "the
+    # active metric falls below the floor."
     spread = new_fitness["skill_spread"]
-    spread_threshold = 0.10
+    lift = new_fitness["llm_lift"]
+    metric_value = lift if _ADMISSION_METRIC == "llm_lift" else spread
+    metric_threshold = 0.10
+    metric_label = "llm_lift" if _ADMISSION_METRIC == "llm_lift" else "skill_spread"
+    metric_describe = (
+        "pafg-llm did not beat pafg" if _ADMISSION_METRIC == "llm_lift"
+        else "no agent in the panel beat random"
+    )
 
-    if spread < spread_threshold:
+    if metric_value < metric_threshold:
         msg = (
-            f"skill spread too small ({spread:+.3f}) — "
-            f"no agent in the panel beat random by {spread_threshold:+.2f}"
+            f"{metric_label} too small ({metric_value:+.3f}) — "
+            f"{metric_describe} by {metric_threshold:+.2f}"
         )
         if not admit_all:
             print(f"  {_TAG_REJECTED} {msg}")
             _record_failure(
                 failure_buffer, parent_key,
                 description=description,
-                reason=f"skill_spread={spread:+.3f} below playability gate {spread_threshold:+.2f}",
+                reason=f"{metric_label}={metric_value:+.3f} below playability gate {metric_threshold:+.2f}",
                 warnings=config_warnings,
             )
             return None
         print(f"  {_C_DIM}[admit-all]{_C_RESET} {msg}")
 
     # QD bin-elite gate: a candidate must either fill an empty bin or beat
-    # the bin's incumbent on raw skill_spread. This re-anchors what the
-    # admission signal measures so mechanics that need a bespoke decoder
-    # land in a different niche than mechanics a small hook patch handles.
+    # the bin's incumbent on the active admission metric. The score routing
+    # in _qd_score / _qd_beats follows whichever metric is active.
     if qd_enabled and not admit_all:
         descriptors = result.get("descriptors")
         if isinstance(descriptors, dict):
@@ -1741,18 +1806,18 @@ def run_mortar_step(
             )
             incumbent = _bin_elite(archive, bin_key)
             if incumbent is not None and not _qd_beats(result, incumbent):
-                inc_spread = _entry_spread(incumbent)
+                inc_score = _entry_admission_score(incumbent)
                 msg = (
                     f"qd-bin {_bin_label(result)} occupied by elite "
-                    f"(spread={inc_spread:+.3f}) — candidate spread "
-                    f"{spread:+.3f} did not beat it"
+                    f"({metric_label}={inc_score:+.3f}) — candidate "
+                    f"{metric_label}={metric_value:+.3f} did not beat it"
                 )
                 print(f"  {_TAG_REJECTED} {msg}")
                 _record_failure(
                     failure_buffer, parent_key,
                     description=description,
                     reason=f"qd-bin {_bin_label(result)} elite not beaten "
-                           f"({spread:+.3f} ≤ {inc_spread:+.3f})",
+                           f"({metric_value:+.3f} ≤ {inc_score:+.3f})",
                     warnings=config_warnings,
                 )
                 return None
@@ -1789,6 +1854,7 @@ def run_mortar_loop(
     admit_all: bool = False,
     parent_temperature: float = 0.2,
     qd_enabled: bool = True,
+    admission_metric: str = "skill_spread",
 ) -> None:
     """
     Run the MORTAR evolution loop for n_iterations steps.
@@ -1798,19 +1864,35 @@ def run_mortar_loop(
     mode: 'param' tunes GameConfig fields only; 'code' asks the LLM to write
           new MineBehavior/RevealStrategy classes; 'mixed' alternates 50/50.
     qd_enabled: if True (default), use 2-axis MAP-Elites admission and
-          parent selection layered on top of the skill_spread floor; if
+          parent selection layered on top of the playability floor; if
           False, fall back to the legacy flat-archive flow.
+    admission_metric: 'skill_spread' (default — best-skilled vs random;
+          measures mechanic playability) or 'llm_lift' (pafg-llm vs pafg;
+          deliberately concentrates on mechanics that demand the
+          adaptive agent).
     """
+    global _ADMISSION_METRIC
+    if admission_metric not in ADMISSION_METRICS:
+        raise ValueError(
+            f"admission_metric must be one of {ADMISSION_METRICS}, "
+            f"got {admission_metric!r}"
+        )
+    _ADMISSION_METRIC = admission_metric
+
     panel = _build_panel(agent_names or DEFAULT_AGENTS)
     print(f"Agent panel: {', '.join(panel)}")
     print(f"Mutation mode: {mode}")
+    print(f"Admission metric: {admission_metric}")
     if qd_enabled:
         print(
             f"Parent selection: bin-uniform → softmax(score / "
             f"{parent_temperature:.2f}) within bin"
         )
     else:
-        print(f"Parent selection: softmax(skill_spread / {parent_temperature:.2f})")
+        print(
+            f"Parent selection: softmax({admission_metric} / "
+            f"{parent_temperature:.2f})"
+        )
     if admit_all:
         print("Admission gates: DISABLED (--admit-all) — every parseable mutation will be admitted.")
 
@@ -1901,6 +1983,7 @@ def run_mortar_loop(
         bin_suffix = f"  bin={_bin_label(result)}" if qd_enabled else ""
         print(
             f"  {_TAG_ACCEPTED} skill_spread={f['skill_spread']*100:+.1f}%  "
+            f"llm_lift={f['llm_lift']*100:+.1f}%  "
             f"gen={result['generation']}{suffix}{bin_suffix}"
         )
         save_archive(archive_path)
@@ -1936,9 +2019,17 @@ if __name__ == "__main__":
                         "best). Default: 0.2.")
     p.add_argument("--qd",    dest="qd_enabled", action="store_true",  default=True,
                    help="Use 2-axis MAP-Elites admission and parent selection on top "
-                        "of the skill_spread floor (default: on).")
+                        "of the playability floor (default: on).")
     p.add_argument("--no-qd", dest="qd_enabled", action="store_false",
-                   help="Disable QD; use the legacy flat-archive softmax + spread-only gate.")
+                   help="Disable QD; use the legacy flat-archive softmax + threshold-only gate.")
+    p.add_argument("--admission-metric", choices=list(ADMISSION_METRICS), default="skill_spread",
+                   help="Which fitness signal drives admission, parent selection, and "
+                        "the bin-elite gate. 'skill_spread' (default) measures mechanic "
+                        "playability (best non-random agent − random). 'llm_lift' measures "
+                        "adaptive-agent uplift (pafg-llm − pafg) and concentrates the "
+                        "search on mechanics that demand a per-mechanic LLM-tuned solver. "
+                        "Recommended pairing for llm_lift is --no-qd, since QD's "
+                        "bin-uniform parent sampling defeats the lift bias.")
     args = p.parse_args()
 
     run_mortar_loop(
@@ -1951,4 +2042,5 @@ if __name__ == "__main__":
         admit_all=args.admit_all,
         parent_temperature=args.parent_temperature,
         qd_enabled=args.qd_enabled,
+        admission_metric=args.admission_metric,
     )
