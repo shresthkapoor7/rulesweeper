@@ -161,14 +161,22 @@ def save_archive(path: str = "archive.json") -> None:
 
 
 def load_archive(path: str = "archive.json") -> None:
-    """Load archive entries from JSON, merging into ARCHIVE."""
+    """Load archive entries from JSON, merging into ARCHIVE.
+    Backfills `descriptors` on any entry with fitness but no descriptors."""
     if not os.path.exists(path):
         return
     with open(path) as f:
         entries = json.load(f)
+    n_backfilled = 0
     for entry in entries:
         key = _config_key(entry["config_snapshot"])
         ARCHIVE[key] = entry
+        if "descriptors" not in entry:
+            _attach_descriptors(entry)
+            if "descriptors" in entry:
+                n_backfilled += 1
+    if n_backfilled:
+        print(f"Backfilled QD descriptors on {n_backfilled} archive entries.")
 
 
 # Default skill_spread imputed for entries that have not been evaluated yet.
@@ -367,16 +375,229 @@ def _entry_score(entry: dict) -> float:
     return spread - _COOLDOWN_PER_ATTEMPT * attempts
 
 
-def _select_parent(
+# ---------------------------------------------------------------------------
+# Quality-Diversity (MAP-Elites) — 2-axis archive structure layered on top of
+# the flat ARCHIVE dict. Re-anchors `skill_spread` so mechanics that need a
+# bespoke decoder land in a different niche than mechanics a small hook
+# patch handles. Bin edges were tuned against archive_final_final.json (n=35)
+# to give 13/16 occupied cells — non-degenerate but with growth headroom.
+# ---------------------------------------------------------------------------
+
+QD_MECH_EDGES: tuple[float, ...] = (0.0, 0.20, 0.35, 0.55, 1.01)
+QD_MECH_LABELS: tuple[str, ...] = ("hard", "mid-hard", "mid-easy", "easy")
+QD_AGENT_LOC_EDGES: tuple[int, ...] = (0, 25, 45, 70, 10**9)
+QD_AGENT_LOC_LABELS: tuple[str, ...] = ("tiny", "small", "medium", "large")
+QD_AGENT_BIN_NO_AGENT: int = -1
+QD_LEGACY_BIN_KEY: tuple[int, int] = (-2, -2)
+
+
+def _strip_pafg_llm_loc(code: str | None) -> int:
+    """Non-blank, non-comment line count of a pafg-llm code body."""
+    if not code:
+        return 0
+    n = 0
+    for line in code.splitlines():
+        stripped = line.strip()
+        if not stripped or stripped.startswith("#"):
+            continue
+        n += 1
+    return n
+
+
+def _bin_right_open(value: float, edges: tuple) -> int | None:
+    """Right-open bucketization. Returns the bin index, or None if value
+    falls outside [edges[0], edges[-1])."""
+    if value is None:
+        return None
+    for i in range(len(edges) - 1):
+        if edges[i] <= value < edges[i + 1]:
+            return i
+    return None
+
+
+def _mech_bin(rp: float | None, edges: tuple[float, ...] = QD_MECH_EDGES) -> int | None:
+    """Bin index for a mechanic-difficulty value (random_progress)."""
+    if rp is None:
+        return None
+    return _bin_right_open(float(rp), edges)
+
+
+def _agent_bin(code: str | None, edges: tuple[int, ...] = QD_AGENT_LOC_EDGES) -> int:
+    """Bin index for the agent-complexity axis. Returns
+    QD_AGENT_BIN_NO_AGENT (-1) when the pafg-llm slot is absent."""
+    if not code:
+        return QD_AGENT_BIN_NO_AGENT
+    loc = _strip_pafg_llm_loc(code)
+    idx = _bin_right_open(loc, edges)
+    if idx is None:
+        return len(edges) - 2
+    return idx
+
+
+def _compute_descriptors(
+    entry: dict,
+    *,
+    mech_edges: tuple[float, ...] = QD_MECH_EDGES,
+    agent_edges: tuple[int, ...] = QD_AGENT_LOC_EDGES,
+    mech_labels: tuple[str, ...] = QD_MECH_LABELS,
+    agent_labels: tuple[str, ...] = QD_AGENT_LOC_LABELS,
+) -> dict | None:
+    """
+    Build the per-entry descriptor block. Returns None when fitness is not
+    yet available so callers can defer.
+    """
+    fitness = entry.get("fitness") or {}
+    per_agent = fitness.get("per_agent") or {}
+    random_stats = per_agent.get("random") or {}
+    rp = random_stats.get("avg_progress_fraction")
+    if rp is None:
+        return None
+    mech_bin = _mech_bin(rp, mech_edges)
+    if mech_bin is None:
+        return None
+    cand = entry.get("pafg_llm_agent") or {}
+    code = cand.get("code") if isinstance(cand, dict) else None
+    loc = _strip_pafg_llm_loc(code)
+    agent_bin = _agent_bin(code, agent_edges)
+    if agent_bin == QD_AGENT_BIN_NO_AGENT:
+        agent_label = "no-agent"
+    else:
+        agent_label = agent_labels[agent_bin]
+    return {
+        "mechanic_random_progress": float(rp),
+        "agent_complexity_lines":   int(loc),
+        "mechanic_bin":             int(mech_bin),
+        "agent_bin":                int(agent_bin),
+        "mech_bin_label":           mech_labels[mech_bin],
+        "agent_bin_label":          agent_label,
+    }
+
+
+def _attach_descriptors(entry: dict) -> None:
+    """Compute and write entry['descriptors']. No-op when fitness not ready."""
+    d = _compute_descriptors(entry)
+    if d is not None:
+        entry["descriptors"] = d
+
+
+def _bin_index(archive: dict[str, dict]) -> dict[tuple[int, int], list[dict]]:
+    """Group archive entries by (mechanic_bin, agent_bin). Entries lacking
+    descriptors land in QD_LEGACY_BIN_KEY."""
+    bins: dict[tuple[int, int], list[dict]] = {}
+    for entry in archive.values():
+        d = entry.get("descriptors")
+        if not isinstance(d, dict) or "mechanic_bin" not in d or "agent_bin" not in d:
+            key = QD_LEGACY_BIN_KEY
+        else:
+            key = (int(d["mechanic_bin"]), int(d["agent_bin"]))
+        bins.setdefault(key, []).append(entry)
+    return bins
+
+
+def _qd_score(entry: dict) -> float:
+    """Bin-elite score. Raw skill_spread; mirrors the playability gate."""
+    return _entry_spread(entry)
+
+
+def _qd_beats(candidate: dict, incumbent: dict, *, epsilon: float = 1e-6) -> bool:
+    """Strict beat with epsilon — prevents float-tie thrash."""
+    return _qd_score(candidate) > _qd_score(incumbent) + epsilon
+
+
+def _bin_elite(archive: dict[str, dict], bin_key: tuple[int, int]) -> dict | None:
+    """Highest _qd_score entry in the named bin, or None."""
+    bins = _bin_index(archive)
+    entries = bins.get(bin_key) or []
+    if not entries:
+        return None
+    return max(entries, key=_qd_score)
+
+
+def _bin_label(entry: dict) -> str:
+    """Human-readable label for an entry's bin, e.g. 'mid-easy/medium'."""
+    d = entry.get("descriptors")
+    if not isinstance(d, dict):
+        return "legacy"
+    return f"{d.get('mech_bin_label', '?')}/{d.get('agent_bin_label', '?')}"
+
+
+def _count_occupied_bins(archive: dict[str, dict]) -> int:
+    """Number of distinct (mech_bin, agent_bin) cells occupied. Excludes
+    the legacy bin so the number reflects real QD coverage."""
+    bins = _bin_index(archive)
+    return sum(1 for k in bins if k != QD_LEGACY_BIN_KEY)
+
+
+def _format_descriptors(entry: dict) -> str:
+    """Telemetry line for an entry's QD descriptors."""
+    d = entry.get("descriptors")
+    if not isinstance(d, dict):
+        return "      qd-bin: legacy (descriptors not yet computed)"
+    return (
+        f"      qd-bin: {_bin_label(entry)}  "
+        f"(random={d.get('mechanic_random_progress', 0.0):.2f}, "
+        f"loc={d.get('agent_complexity_lines', 0)})"
+    )
+
+
+def _softmax_pick(
+    entries: list[dict],
+    *,
+    temperature: float = 0.2,
+    rng: random.Random | None = None,
+) -> dict:
+    """Softmax-sample one entry from a non-empty list weighted by
+    ``_entry_score``. Shared between flat and QD parent selection."""
+    rng = rng or random
+    if len(entries) == 1:
+        return entries[0]
+    scores = [_entry_score(e) for e in entries]
+    if temperature <= 0:
+        best_idx = max(range(len(entries)), key=scores.__getitem__)
+        return entries[best_idx]
+    max_score = max(scores)
+    weights = [math.exp((s - max_score) / temperature) for s in scores]
+    total = sum(weights)
+    if total <= 0:
+        return rng.choice(entries)
+    pick = rng.uniform(0.0, total)
+    cumulative = 0.0
+    for entry, w in zip(entries, weights):
+        cumulative += w
+        if pick <= cumulative:
+            return entry
+    return entries[-1]
+
+
+def _select_parent_flat(
     archive: dict[str, dict],
     *,
     temperature: float = 0.2,
     rng: random.Random | None = None,
 ) -> dict:
-    """
-    Sample a parent entry weighted by ``softmax(score / temperature)``, where
-    score = skill_spread − cooldown × n_children_attempted.
+    """Legacy flat-archive parent selection. Sample weighted by
+    ``softmax(score / temperature)`` over every entry."""
+    rng = rng or random
+    entries = list(archive.values())
+    if not entries:
+        raise RuntimeError("Cannot select parent from empty archive.")
+    return _softmax_pick(entries, temperature=temperature, rng=rng)
 
+
+def _select_parent(
+    archive: dict[str, dict],
+    *,
+    temperature: float = 0.2,
+    rng: random.Random | None = None,
+    qd_enabled: bool = True,
+) -> dict:
+    """
+    QD parent selection: pick a non-empty bin uniformly at random, then
+    softmax over ``_entry_score`` within that bin. Falls back to the flat
+    softmax when ``qd_enabled=False`` or when fewer than 2 bins are
+    populated (cold-start).
+
+    score = skill_spread − cooldown × n_children_attempted.
     Lower temperature -> more elitist (high-score parents dominate). Higher
     temperature -> closer to uniform. ``temperature <= 0`` collapses to
     argmax (deterministic best). Entries with no fitness yet are treated as
@@ -390,24 +611,16 @@ def _select_parent(
     if len(entries) == 1:
         return entries[0]
 
-    scores = [_entry_score(e) for e in entries]
-    if temperature <= 0:
-        best_idx = max(range(len(entries)), key=scores.__getitem__)
-        return entries[best_idx]
+    if not qd_enabled:
+        return _select_parent_flat(archive, temperature=temperature, rng=rng)
 
-    # Subtract max for numerical stability before exp.
-    max_score = max(scores)
-    weights = [math.exp((s - max_score) / temperature) for s in scores]
-    total = sum(weights)
-    if total <= 0:
-        return rng.choice(entries)
-    pick = rng.uniform(0.0, total)
-    cumulative = 0.0
-    for entry, w in zip(entries, weights):
-        cumulative += w
-        if pick <= cumulative:
-            return entry
-    return entries[-1]
+    bins = _bin_index(archive)
+    if len(bins) < 2:
+        return _select_parent_flat(archive, temperature=temperature, rng=rng)
+
+    bin_keys = list(bins.keys())
+    chosen_bin = rng.choice(bin_keys)
+    return _softmax_pick(bins[chosen_bin], temperature=temperature, rng=rng)
 
 
 # ---------------------------------------------------------------------------
@@ -1245,6 +1458,7 @@ def run_mortar_step(
     code_kind: str | None = None,
     admit_all: bool = False,
     failure_buffer: FailureBuffer | None = None,
+    qd_enabled: bool = True,
 ) -> dict | None:
     """
     Run one MORTAR iteration. `mode` is "param" or "code"; "code" requires
@@ -1315,7 +1529,9 @@ def run_mortar_step(
             return None
         fitness = _multi_fitness(per_agent)
         base_entry["fitness"] = fitness
+        _attach_descriptors(base_entry)
         print(_format_per_agent(per_agent))
+        print(_format_descriptors(base_entry))
 
     if mode == "code":
         if code_kind not in KIND_SPEC:
@@ -1473,6 +1689,22 @@ def run_mortar_step(
 
     print(_format_per_agent(per_agent))
 
+    # Build the candidate result up-front so its descriptors are available
+    # to both the playability gate and the QD bin-elite gate below.
+    generation = (base_entry.get("generation") or 0) + 1
+    result = {
+        "config_snapshot":  new_snapshot,
+        "description":      description,
+        "fitness":          new_fitness,
+        "parent_snapshot":  snapshot,
+        "generation":       generation,
+        **code_meta,
+    }
+    if generated_agent is not None:
+        result["pafg_llm_agent"] = generated_agent
+    _attach_descriptors(result)
+    print(_format_descriptors(result))
+
     # Admission criterion: at least one skilled agent must clear the random
     # baseline by `spread_threshold`. Trivially-easy and trivially-hard configs
     # are both kept — the only thing that disqualifies a config is "no agent
@@ -1496,17 +1728,35 @@ def run_mortar_step(
             return None
         print(f"  {_C_DIM}[admit-all]{_C_RESET} {msg}")
 
-    generation = (base_entry.get("generation") or 0) + 1
-    result = {
-        "config_snapshot":  new_snapshot,
-        "description":      description,
-        "fitness":          new_fitness,
-        "parent_snapshot":  snapshot,
-        "generation":       generation,
-        **code_meta,
-    }
-    if generated_agent is not None:
-        result["pafg_llm_agent"] = generated_agent
+    # QD bin-elite gate: a candidate must either fill an empty bin or beat
+    # the bin's incumbent on raw skill_spread. This re-anchors what the
+    # admission signal measures so mechanics that need a bespoke decoder
+    # land in a different niche than mechanics a small hook patch handles.
+    if qd_enabled and not admit_all:
+        descriptors = result.get("descriptors")
+        if isinstance(descriptors, dict):
+            bin_key = (
+                int(descriptors["mechanic_bin"]),
+                int(descriptors["agent_bin"]),
+            )
+            incumbent = _bin_elite(archive, bin_key)
+            if incumbent is not None and not _qd_beats(result, incumbent):
+                inc_spread = _entry_spread(incumbent)
+                msg = (
+                    f"qd-bin {_bin_label(result)} occupied by elite "
+                    f"(spread={inc_spread:+.3f}) — candidate spread "
+                    f"{spread:+.3f} did not beat it"
+                )
+                print(f"  {_TAG_REJECTED} {msg}")
+                _record_failure(
+                    failure_buffer, parent_key,
+                    description=description,
+                    reason=f"qd-bin {_bin_label(result)} elite not beaten "
+                           f"({spread:+.3f} ≤ {inc_spread:+.3f})",
+                    warnings=config_warnings,
+                )
+                return None
+
     return result
 
 
@@ -1538,6 +1788,7 @@ def run_mortar_loop(
     mode: str = "mixed",
     admit_all: bool = False,
     parent_temperature: float = 0.2,
+    qd_enabled: bool = True,
 ) -> None:
     """
     Run the MORTAR evolution loop for n_iterations steps.
@@ -1546,11 +1797,20 @@ def run_mortar_loop(
     delay: seconds to wait between iterations (respects free-tier rate limits).
     mode: 'param' tunes GameConfig fields only; 'code' asks the LLM to write
           new MineBehavior/RevealStrategy classes; 'mixed' alternates 50/50.
+    qd_enabled: if True (default), use 2-axis MAP-Elites admission and
+          parent selection layered on top of the skill_spread floor; if
+          False, fall back to the legacy flat-archive flow.
     """
     panel = _build_panel(agent_names or DEFAULT_AGENTS)
     print(f"Agent panel: {', '.join(panel)}")
     print(f"Mutation mode: {mode}")
-    print(f"Parent selection: softmax(skill_spread / {parent_temperature:.2f})")
+    if qd_enabled:
+        print(
+            f"Parent selection: bin-uniform → softmax(score / "
+            f"{parent_temperature:.2f}) within bin"
+        )
+    else:
+        print(f"Parent selection: softmax(skill_spread / {parent_temperature:.2f})")
     if admit_all:
         print("Admission gates: DISABLED (--admit-all) — every parseable mutation will be admitted.")
 
@@ -1559,6 +1819,16 @@ def run_mortar_loop(
     n_loaded = register_all_from_archive(ARCHIVE)
     if n_loaded:
         print(f"Reregistered {n_loaded} generated mechanic(s) from archive.")
+    if qd_enabled:
+        n_mech = len(QD_MECH_LABELS)
+        n_agent = len(QD_AGENT_LOC_LABELS)
+        n_occupied = _count_occupied_bins(ARCHIVE)
+        print(
+            f"QD: {n_mech} mech bins × {n_agent} agent bins; "
+            f"{n_occupied} non-empty."
+        )
+    else:
+        print("QD: disabled.")
     save_archive(archive_path)  # persist seed entry + drop any unloadable code entries
 
     failure_buffer: FailureBuffer = {}
@@ -1567,7 +1837,9 @@ def run_mortar_loop(
         if i > 0 and delay > 0:
             time.sleep(delay)
 
-        parent_entry = _select_parent(ARCHIVE, temperature=parent_temperature)
+        parent_entry = _select_parent(
+            ARCHIVE, temperature=parent_temperature, qd_enabled=qd_enabled,
+        )
         desc = parent_entry.get("description", "?")
         parent_spread = _entry_spread(parent_entry)
         parent_entry["n_children_attempted"] = int(
@@ -1576,10 +1848,11 @@ def run_mortar_loop(
 
         iter_mode, code_kind = _resolve_iter_mode(mode)
         kind_label = f"+{code_kind}" if iter_mode == "code" else ""
+        bin_label = f", bin={_bin_label(parent_entry)}" if qd_enabled else ""
         header = (
             f"{_C_BOLD}[{i+1}/{n_iterations}]{_C_RESET} {iter_mode}{kind_label}  "
             f"parent (gen={parent_entry.get('generation', 0)}, "
-            f"spread={parent_spread:+.2f}): {desc}"
+            f"spread={parent_spread:+.2f}{bin_label}): {desc}"
         )
         print(f"\n{header}")
 
@@ -1590,6 +1863,7 @@ def run_mortar_loop(
             code_kind=code_kind,
             admit_all=admit_all,
             failure_buffer=failure_buffer,
+            qd_enabled=qd_enabled,
         )
         if result is None:
             # run_mortar_step has already printed a tagged reason.
@@ -1604,11 +1878,31 @@ def run_mortar_loop(
             print(f"  {_TAG_SKIPPED} duplicate config")
             continue
 
+        # Evict displaced bin elite (if any) before insertion.
+        if qd_enabled and isinstance(result.get("descriptors"), dict):
+            bin_key = (
+                int(result["descriptors"]["mechanic_bin"]),
+                int(result["descriptors"]["agent_bin"]),
+            )
+            displaced = _bin_elite(ARCHIVE, bin_key)
+            if displaced is not None:
+                d_key = _config_key(displaced["config_snapshot"])
+                if d_key != key:
+                    del ARCHIVE[d_key]
+                    print(
+                        f"  {_C_DIM}[evicted]{_C_RESET} bin {_bin_label(result)} "
+                        f"previous elite (spread={_entry_spread(displaced):+.3f})"
+                    )
+
         ARCHIVE[key] = result
         accepted += 1
         f = result["fitness"]
         suffix = f"  code:{result['code_key']}" if result.get("code_key") else ""
-        print(f"  {_TAG_ACCEPTED} skill_spread={f['skill_spread']*100:+.1f}%  gen={result['generation']}{suffix}")
+        bin_suffix = f"  bin={_bin_label(result)}" if qd_enabled else ""
+        print(
+            f"  {_TAG_ACCEPTED} skill_spread={f['skill_spread']*100:+.1f}%  "
+            f"gen={result['generation']}{suffix}{bin_suffix}"
+        )
         save_archive(archive_path)
 
     print(f"\n{_C_BOLD}Done.{_C_RESET} {accepted}/{n_iterations} configs accepted. Archive size: {len(ARCHIVE)}.")
@@ -1640,6 +1934,11 @@ if __name__ == "__main__":
                         "Lower = more elitist (high-spread parents dominate); higher = "
                         "closer to uniform random. Set to 0 for argmax (deterministic "
                         "best). Default: 0.2.")
+    p.add_argument("--qd",    dest="qd_enabled", action="store_true",  default=True,
+                   help="Use 2-axis MAP-Elites admission and parent selection on top "
+                        "of the skill_spread floor (default: on).")
+    p.add_argument("--no-qd", dest="qd_enabled", action="store_false",
+                   help="Disable QD; use the legacy flat-archive softmax + spread-only gate.")
     args = p.parse_args()
 
     run_mortar_loop(
@@ -1651,4 +1950,5 @@ if __name__ == "__main__":
         mode=args.mode,
         admit_all=args.admit_all,
         parent_temperature=args.parent_temperature,
+        qd_enabled=args.qd_enabled,
     )
