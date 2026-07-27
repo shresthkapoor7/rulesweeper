@@ -1,7 +1,9 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { GAMES, getGame } from "@/lib/games";
+import { MECHANIC_CODE } from "@/lib/mechanicCode";
 import GameBoard from "@/components/GameBoard";
+import CodeBlock from "@/components/CodeBlock";
 
 export function generateStaticParams() {
   return GAMES.map((g) => ({ slug: g.slug }));
@@ -40,6 +42,17 @@ export default async function PlayPage({
           <li key={i}>{line}</li>
         ))}
       </ul>
+
+      {MECHANIC_CODE[game.slug] && (
+        <>
+          <h3>The rule in code</h3>
+          <p className="small muted" style={{ marginBottom: 4 }}>
+            The generated mechanic this game runs. The browser engine is an
+            algorithm-faithful port of it.
+          </p>
+          <CodeBlock code={MECHANIC_CODE[game.slug]} />
+        </>
+      )}
 
       <hr />
       <h3 className="center">More mechanics to play</h3>

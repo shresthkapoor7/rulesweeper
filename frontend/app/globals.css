@@ -440,3 +440,35 @@ table.results th {
   color: var(--muted);
   line-height: 1.4;
 }
+
+/* --- mechanic source code block --- */
+.code {
+  border: 1px solid var(--line);
+  background: var(--card-hover);
+  padding: 16px 18px;
+  margin: 8px 0 0;
+  overflow-x: auto;
+  font-family: "Courier New", monospace;
+  font-size: 12.5px;
+  line-height: 1.55;
+  white-space: pre;
+  tab-size: 4;
+  color: var(--fg);
+}
+
+.code code {
+  font-family: inherit;
+}
+
+.code strong {
+  font-weight: 700;
+}
+
+.code .str {
+  color: var(--muted);
+}
+
+.code .com {
+  color: var(--muted);
+  font-style: italic;
+}
