@@ -51,7 +51,7 @@ export default function GameBoard({ config }: { config: GameConfig }) {
   const onReveal = useCallback(
     (r: number, c: number) => {
       const cell = game.grid[r][c];
-      if (cell.isRevealed || cell.isFlagged) return;
+      if (cell.isRevealed || cell.isFlagged || game.isAutoFlagged(r, c)) return;
       const ps = game.status;
       const ph = game.health;
       game.reveal(r, c);
@@ -132,6 +132,9 @@ export default function GameBoard({ config }: { config: GameConfig }) {
               }
             } else if (cell.isFlagged) {
               content = "⚑";
+            } else if (game.isAutoFlagged(r, c)) {
+              cls += " telegraph";
+              content = "⚠";
             } else if (over && cell.isMine) {
               // reveal remaining mines when the game ends
               cls += " mine";

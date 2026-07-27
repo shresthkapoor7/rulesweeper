@@ -18,14 +18,14 @@ export default async function PlayPage({
 
   return (
     <main className="container">
-      <Link href="/#play" className="backlink">
+      <a href="/#play" className="backlink">
         Back to the paper
-      </Link>
+      </a>
 
       <div className="center">
         <h1 style={{ fontSize: 28 }}>{game.title}</h1>
         <p className="muted" style={{ marginTop: -8 }}>
-          LLM lift {game.lift} · {game.tagline}
+          {game.lift} · {game.tagline}
         </p>
       </div>
 
@@ -42,10 +42,12 @@ export default async function PlayPage({
       </ul>
 
       <hr />
-      <div className="center">
+      <h3 className="center">More mechanics to play</h3>
+      <div className="more-grid">
         {GAMES.filter((g) => g.slug !== game.slug).map((g) => (
-          <Link key={g.slug} href={`/play/${g.slug}`} className="btn">
-            Play “{g.title}” →
+          <Link key={g.slug} href={`/play/${g.slug}`} className="more-card">
+            <span className="more-title">{g.title}</span>
+            <span className="more-tag">{g.tagline}</span>
           </Link>
         ))}
       </div>

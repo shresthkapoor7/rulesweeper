@@ -161,16 +161,17 @@ export default function Home() {
         Minesweeper, averaged over 100 games on the same seed.
       </p>
 
-      <h2 id="play">Play two evolved mechanics</h2>
+      <h2 id="play">Play the evolved mechanics</h2>
       <p>
-        These are two of the highest-lift mechanics the pipeline produced — the
-        same examples highlighted in the paper. Both run entirely in your
-        browser.
+        Five mechanics from the archive, each a different configuration of the
+        same engine. The first two are the highest-lift examples highlighted in
+        the paper; the rest are high-skill-spread variants that reinterpret how
+        clues, reveals, and mines behave. All run entirely in your browser.
       </p>
       <div className="cards">
         {GAMES.map((g) => (
           <Link key={g.slug} href={`/play/${g.slug}`} className="card">
-            <span className="lift">LLM lift {g.lift}</span>
+            <span className="lift">{g.lift}</span>
             <h3>{g.title}</h3>
             <p>{g.tagline}</p>
           </Link>

@@ -8,8 +8,9 @@
 // the browser game plays the same as the research build.
 
 export type Neighborhood = "moore" | "radius-2-moore";
-export type MineBehavior = "static" | "drifting";
+export type MineBehavior = "static" | "drifting" | "telegraphed";
 export type InfoStrategy = "count-mines" | "ranked";
+export type RevealStrategy = "cascade" | "checkerboard" | "ripple";
 
 export interface GameConfig {
   rows: number;
@@ -19,7 +20,9 @@ export interface GameConfig {
   neighborhood: Neighborhood;
   mineBehavior: MineBehavior;
   info: InfoStrategy;
+  reveal: RevealStrategy;
   driftProb: number;
+  telegraphFraction: number;
   safeFirstClick: boolean;
 }
 
@@ -55,6 +58,10 @@ export class Minesweeper {
   status: Status;
   minesPlaced = false;
   moves = 0;
+  // Cells that a mine behavior (Telegraphed Mines) has marked as a one-turn
+  // warning. Tracked separately from player flags so it never touches the
+  // player's own flagging state.
+  autoFlagged = new Set<string>();
   private off: [number, number][];
 
   constructor(cfg: GameConfig) {
@@ -127,6 +134,100 @@ export class Minesweeper {
     return true;
   }
 
+  private applyReveal(r: number, c: number): [number, number][] {
+    switch (this.cfg.reveal) {
+      case "checkerboard":
+        return this.checkerboard(r, c);
+      case "ripple":
+        return this.ripple(r, c);
+      default:
+        return this.cascade(r, c);
+    }
+  }
+
+  // Cascade restricted to same (r+c) parity: the flood only propagates through
+  // matching-parity cells, and opposite-parity neighbors are revealed as a
+  // border but never used as seeds — leaving an interleaved hidden lattice.
+  private checkerboard(r: number, c: number): [number, number][] {
+    const cell = this.grid[r][c];
+    const parity = (r + c) % 2;
+    if (cell.adjacentMines > 0) {
+      cell.isRevealed = true;
+      return [[r, c]];
+    }
+    const queue: [number, number][] = [[r, c]];
+    const visited = new Set<string>([`${r},${c}`]);
+    const revealed: [number, number][] = [];
+    while (queue.length) {
+      const [cr, cc] = queue.shift()!;
+      const cur = this.grid[cr][cc];
+      if (cur.isRevealed || cur.isFlagged || cur.isMine) continue;
+      cur.isRevealed = true;
+      revealed.push([cr, cc]);
+      if (cur.adjacentMines === 0) {
+        for (const [nr, nc] of this.neighbors(cr, cc)) {
+          const key = `${nr},${nc}`;
+          if (visited.has(key)) continue;
+          const nb = this.grid[nr][nc];
+          if ((nr + nc) % 2 === parity) {
+            visited.add(key);
+            queue.push([nr, nc]);
+          } else if (!nb.isRevealed && !nb.isFlagged && !nb.isMine) {
+            // opposite-parity border: reveal but do not cascade
+            visited.add(key);
+            nb.isRevealed = true;
+            revealed.push([nr, nc]);
+          }
+        }
+      }
+    }
+    return revealed;
+  }
+
+  // Ripple reveal: expand in concentric BFS rings from the click and halt the
+  // entire expansion the moment a ring contains any numbered cell.
+  private ripple(r: number, c: number): [number, number][] {
+    const cell = this.grid[r][c];
+    if (cell.adjacentMines > 0) {
+      cell.isRevealed = true;
+      return [[r, c]];
+    }
+    const revealed: [number, number][] = [];
+    const visited = new Set<string>([`${r},${c}`]);
+    let ring: [number, number][] = [[r, c]];
+    while (ring.length) {
+      const ringRevealed: [number, number][] = [];
+      for (const [cr, cc] of ring) {
+        const cur = this.grid[cr][cc];
+        if (cur.isMine || cur.isFlagged) continue;
+        if (!cur.isRevealed) {
+          cur.isRevealed = true;
+          ringRevealed.push([cr, cc]);
+        }
+      }
+      revealed.push(...ringRevealed);
+      const ringHasNumbered = ringRevealed.some(
+        ([cr, cc]) => this.grid[cr][cc].adjacentMines > 0
+      );
+      if (ringHasNumbered) break;
+      const next: [number, number][] = [];
+      for (const [cr, cc] of ringRevealed) {
+        if (this.grid[cr][cc].adjacentMines !== 0) continue;
+        for (const [nr, nc] of this.neighbors(cr, cc)) {
+          const key = `${nr},${nc}`;
+          if (visited.has(key)) continue;
+          const nb = this.grid[nr][nc];
+          if (!nb.isMine && !nb.isFlagged && !nb.isRevealed) {
+            visited.add(key);
+            next.push([nr, nc]);
+          }
+        }
+      }
+      ring = next;
+    }
+    return revealed;
+  }
+
   // Standard cascade reveal (BFS flood-fill from zero-adjacent cells).
   private cascade(r: number, c: number): [number, number][] {
     const cell = this.grid[r][c];
@@ -156,11 +257,16 @@ export class Minesweeper {
     return revealed;
   }
 
+  isAutoFlagged(r: number, c: number): boolean {
+    return this.autoFlagged.has(`${r},${c}`);
+  }
+
   reveal(r: number, c: number) {
     if (this.status === "won" || this.status === "lost") return;
     if (!this.minesPlaced) this.placeMines(r, c);
     const cell = this.grid[r][c];
-    if (cell.isRevealed || cell.isFlagged) return;
+    // A telegraphed cell is a known mine — treat it like a flag and ignore.
+    if (cell.isRevealed || cell.isFlagged || this.isAutoFlagged(r, c)) return;
     this.moves++;
 
     if (cell.isMine) {
@@ -171,7 +277,7 @@ export class Minesweeper {
         return;
       }
     } else {
-      this.cascade(r, c);
+      this.applyReveal(r, c);
     }
     this.status = "active";
     this.runMineBehavior();
@@ -181,7 +287,7 @@ export class Minesweeper {
   toggleFlag(r: number, c: number) {
     if (this.status === "won" || this.status === "lost") return;
     const cell = this.grid[r][c];
-    if (cell.isRevealed) return;
+    if (cell.isRevealed || this.isAutoFlagged(r, c)) return;
     cell.isFlagged = !cell.isFlagged;
     this.moves++;
     if (this.minesPlaced) {
@@ -191,10 +297,41 @@ export class Minesweeper {
     }
   }
 
+  private runMineBehavior() {
+    if (this.status !== "active") return;
+    if (this.cfg.mineBehavior === "drifting") this.drift();
+    else if (this.cfg.mineBehavior === "telegraphed") this.telegraph();
+  }
+
+  // TelegraphedMines: each turn a rotating fraction of hidden, un-flagged mines
+  // reveal themselves as one-turn warnings. Last turn's warnings clear first,
+  // so a different subset is telegraphed each move.
+  private telegraph() {
+    this.autoFlagged.clear();
+    const mines: [number, number][] = [];
+    for (let r = 0; r < this.cfg.rows; r++)
+      for (let c = 0; c < this.cfg.cols; c++) {
+        const cell = this.grid[r][c];
+        if (cell.isMine && !cell.isRevealed && !cell.isFlagged)
+          mines.push([r, c]);
+      }
+    if (mines.length === 0) return;
+    const count = Math.min(
+      mines.length,
+      Math.max(1, Math.floor(mines.length * this.cfg.telegraphFraction))
+    );
+    // partial Fisher-Yates to pick `count` distinct mines
+    for (let i = 0; i < count; i++) {
+      const j = i + Math.floor(Math.random() * (mines.length - i));
+      [mines[i], mines[j]] = [mines[j], mines[i]];
+      const [r, c] = mines[i];
+      this.autoFlagged.add(`${r},${c}`);
+    }
+  }
+
   // DriftingMines: each unflagged mine has driftProb chance of walking into an
   // adjacent unrevealed, unflagged, non-mine cell. Flagged mines stay pinned.
-  private runMineBehavior() {
-    if (this.cfg.mineBehavior !== "drifting" || this.status !== "active") return;
+  private drift() {
     const mines: [number, number][] = [];
     for (let r = 0; r < this.cfg.rows; r++)
       for (let c = 0; c < this.cfg.cols; c++)
