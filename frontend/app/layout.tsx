@@ -5,7 +5,7 @@ import ThemeToggle from "@/components/ThemeToggle";
 export const metadata: Metadata = {
   title: "rulesweeper",
   description:
-    "A research project adapting the MORTAR pipeline to generate and adapt gameplay mechanics in Minesweeper. Read the paper and play two evolved mechanics.",
+    "A research project adapting the MORTAR pipeline to generate and adapt gameplay mechanics in Minesweeper. Read the paper and play evolved mechanics.",
 };
 
 // Set the theme before first paint to avoid a flash of the wrong theme.
