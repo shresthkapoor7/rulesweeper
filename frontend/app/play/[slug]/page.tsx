@@ -19,7 +19,7 @@ export default async function PlayPage({
   return (
     <main className="container">
       <Link href="/#play" className="backlink">
-        ← Back to the paper
+        Back to the paper
       </Link>
 
       <div className="center">
