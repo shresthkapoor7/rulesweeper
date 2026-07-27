@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { GAMES } from "@/lib/games";
+import { PipelineFigure, SkillSpreadFormula } from "@/components/Figures";
 
 export default function Home() {
   return (
@@ -61,6 +62,13 @@ export default function Home() {
         strategy, neighborhood, and win condition).
       </p>
 
+      <PipelineFigure />
+      <p className="small muted center" style={{ marginTop: -4 }}>
+        Each candidate is instantiated, played, scored, and — if it separates
+        skilled from random play — folded back into the archive to seed future
+        mutations.
+      </p>
+
       <h3>The core challenge: a moving evaluation target</h3>
       <p>
         When you mutate mechanics, the environment used to judge a game keeps
@@ -93,11 +101,19 @@ export default function Home() {
       </ul>
       <p>
         A mechanic is interesting when a skilled agent extracts substantially
-        more progress than random play. The selection signal is{" "}
-        <b>skill spread</b> — the best skilled agent&apos;s average progress
-        minus the random agent&apos;s. Candidates are admitted to a persistent
-        archive only when skill spread ≥ 0.10, and future mutations are sampled
-        from that archive with a MAP-Elites-style procedure.
+        more progress than random play. We measure each agent&apos;s progress
+        fraction P<sub>a</sub> — the average safe cells it reveals out of the S
+        = r·c − m safe cells on the board — and define the selection signal,{" "}
+        <b>skill spread</b>, as the best skilled agent&apos;s progress minus the
+        random agent&apos;s:
+      </p>
+
+      <SkillSpreadFormula />
+
+      <p>
+        Candidates are admitted to a persistent archive only when skill spread ≥
+        0.10, and future mutations are sampled from that archive with a
+        MAP-Elites-style procedure.
       </p>
 
       <h2>Results</h2>
@@ -164,9 +180,7 @@ export default function Home() {
       <hr />
       <p className="small muted center">
         Built on the{" "}
-        <a href="https://github.com/teddyclark/mortar-minesweeper">
-          mortar-minesweeper
-        </a>{" "}
+        <a href="https://github.com/shresthkapoor7/rulesweeper">rulesweeper</a>{" "}
         research engine. Every mechanic here is a configuration of that engine.
       </p>
     </main>

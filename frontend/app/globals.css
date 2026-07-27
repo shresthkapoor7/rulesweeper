@@ -5,10 +5,25 @@
   --line: #dddddd;
   --hidden: #ececec;
   --hidden-hover: #e0e0e0;
+  --card-hover: #fafafa;
+}
+
+:root[data-theme="dark"] {
+  --fg: #ededed;
+  --bg: #0d0d0d;
+  --muted: #9a9a9a;
+  --line: #2a2a2a;
+  --hidden: #242424;
+  --hidden-hover: #313131;
+  --card-hover: #171717;
 }
 
 * {
   box-sizing: border-box;
+}
+
+html {
+  color-scheme: light dark;
 }
 
 html,
@@ -144,7 +159,7 @@ hr {
 }
 
 .card:hover {
-  background: #fafafa;
+  background: var(--card-hover);
   color: var(--fg);
 }
 
@@ -224,8 +239,8 @@ hr {
 }
 
 .cell.mine {
-  background: #111;
-  color: #fff;
+  background: var(--fg);
+  color: var(--bg);
 }
 
 .status-line {
@@ -274,4 +289,108 @@ table.results td {
 
 table.results th {
   font-weight: 700;
+}
+
+/* --- theme toggle --- */
+.theme-toggle {
+  position: fixed;
+  top: 16px;
+  right: 16px;
+  z-index: 10;
+  border: 1px solid var(--fg);
+  background: var(--bg);
+  color: var(--fg);
+  width: 38px;
+  height: 38px;
+  border-radius: 50%;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 16px;
+  line-height: 1;
+  padding: 0;
+}
+
+.theme-toggle:hover {
+  background: var(--fg);
+  color: var(--bg);
+}
+
+/* --- math / formula blocks --- */
+.figure {
+  margin: 20px 0 8px;
+  text-align: center;
+}
+
+.figure svg {
+  max-width: 100%;
+  height: auto;
+}
+
+.figcaption {
+  font-size: 13px;
+  color: var(--muted);
+  margin-top: 8px;
+  font-style: italic;
+}
+
+.formula {
+  border: 1px solid var(--line);
+  padding: 18px 20px;
+  margin: 18px 0;
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+  align-items: center;
+  font-family: "Times New Roman", Times, Georgia, serif;
+}
+
+.eq {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 19px;
+  font-style: italic;
+}
+
+.eq .sub {
+  font-style: italic;
+  font-size: 0.7em;
+  vertical-align: sub;
+}
+
+.frac {
+  display: inline-flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+}
+
+.frac .num {
+  padding: 0 8px 3px;
+  border-bottom: 1px solid var(--fg);
+  font-size: 16px;
+}
+
+.frac .den {
+  padding: 3px 8px 0;
+  font-size: 17px;
+}
+
+.eq .maxop {
+  display: inline-flex;
+  flex-direction: column;
+  align-items: center;
+  line-height: 1;
+}
+
+.eq .maxop .lab {
+  font-size: 20px;
+  font-style: normal;
+}
+
+.eq .maxop .cond {
+  font-size: 11px;
+  font-style: italic;
 }

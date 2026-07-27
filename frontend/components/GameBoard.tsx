@@ -1,13 +1,47 @@
 "use client";
 
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { Minesweeper, type GameConfig } from "@/lib/minesweeper";
+import {
+  playReveal,
+  playFlag,
+  playHit,
+  playWin,
+  playLose,
+  isSoundEnabled,
+  setSoundEnabled,
+  initSoundPref,
+} from "@/lib/sound";
 
 export default function GameBoard({ config }: { config: GameConfig }) {
   const [game, setGame] = useState(() => new Minesweeper(config));
   // bump forces a re-render after mutating the game object in place.
   const [, setTick] = useState(0);
   const rerender = useCallback(() => setTick((t) => t + 1), []);
+  const [soundOn, setSoundOn] = useState(true);
+
+  useEffect(() => {
+    initSoundPref();
+    setSoundOn(isSoundEnabled());
+  }, []);
+
+  const toggleSound = useCallback(() => {
+    const next = !isSoundEnabled();
+    setSoundEnabled(next);
+    setSoundOn(next);
+  }, []);
+
+  // Pick the right sound from what changed between two game snapshots.
+  const soundForTransition = useCallback(
+    (prevStatus: string, prevHealth: number, action: "reveal" | "flag") => {
+      if (game.status === "lost") return playLose();
+      if (game.status === "won") return playWin();
+      if (game.health < prevHealth) return playHit();
+      if (action === "flag") return playFlag();
+      return playReveal();
+    },
+    [game]
+  );
 
   const reset = useCallback(() => {
     setGame(new Minesweeper(config));
@@ -16,19 +50,28 @@ export default function GameBoard({ config }: { config: GameConfig }) {
 
   const onReveal = useCallback(
     (r: number, c: number) => {
+      const cell = game.grid[r][c];
+      if (cell.isRevealed || cell.isFlagged) return;
+      const ps = game.status;
+      const ph = game.health;
       game.reveal(r, c);
+      soundForTransition(ps, ph, "reveal");
       rerender();
     },
-    [game, rerender]
+    [game, rerender, soundForTransition]
   );
 
   const onFlag = useCallback(
     (e: React.MouseEvent, r: number, c: number) => {
       e.preventDefault();
+      if (game.grid[r][c].isRevealed) return;
+      const ps = game.status;
+      const ph = game.health;
       game.toggleFlag(r, c);
+      soundForTransition(ps, ph, "flag");
       rerender();
     },
-    [game, rerender]
+    [game, rerender, soundForTransition]
   );
 
   const statusText = useMemo(() => {
@@ -53,6 +96,15 @@ export default function GameBoard({ config }: { config: GameConfig }) {
         </span>
         <button className="btn" onClick={reset} style={{ padding: "4px 14px" }}>
           New game
+        </button>
+        <button
+          className="btn"
+          onClick={toggleSound}
+          style={{ padding: "4px 12px" }}
+          aria-label={soundOn ? "Mute sound" : "Unmute sound"}
+          title={soundOn ? "Mute sound" : "Unmute sound"}
+        >
+          {soundOn ? "♪ On" : "♪ Off"}
         </button>
       </div>
 
