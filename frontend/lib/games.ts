@@ -15,7 +15,7 @@ export const GAMES: GameInfo[] = [
   {
     slug: "ranked-neighborhood",
     title: "Ranked Neighborhood Info",
-    lift: "LLM lift +0.65",
+    lift: "Skill-spread 0.56",
     tagline: "Clues show comparative rank, not absolute mine counts.",
     description:
       "A code-level mutation of the clue encoding. Instead of printing the number of adjacent mines, each revealed cell shows the ordinal rank of its mine count relative to its already-revealed neighbors — 1 means this cell borders the fewest mines among the cells around it. This shifts play from absolute deduction to comparative reasoning: you can tell which direction is relatively safer, but never the exact count. Random play cannot exploit the relational ordering, which is what makes the mechanic separate skilled from unskilled solvers.",
@@ -42,7 +42,7 @@ export const GAMES: GameInfo[] = [
   {
     slug: "radius-drift",
     title: "5×5 Radius + Drifting Mines",
-    lift: "LLM lift +0.77",
+    lift: "Skill-spread 0.71",
     tagline: "Clues count mines over a 5×5 region while mines wander each turn.",
     description:
       "The highest-lift mechanic in the archive — it best illustrates how far a generated variant can drift from canonical Minesweeper while staying playable. Two mechanics compose: adjacency is widened to a 5×5 (radius-2) neighborhood so every clue counts mines over 24 surrounding cells, and mines drift — each turn every unflagged mine has a 30% chance of wandering into an adjacent empty cell. Flagging a mine pins it in place, which keeps flagging meaningful as a deduction tool. You start with 3 health because the moving hazards make a single life unforgiving.",
