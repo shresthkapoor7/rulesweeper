@@ -228,6 +228,9 @@ hr {
   cursor: pointer;
   padding: 0;
   color: var(--fg);
+  -webkit-touch-callout: none;
+  -webkit-user-select: none;
+  user-select: none;
 }
 
 .cell:hover {
@@ -471,4 +474,18 @@ table.results th {
 .code .com {
   color: var(--muted);
   font-style: italic;
+}
+
+/* --- agent controls --- */
+.hud.agents {
+  margin-top: -4px;
+}
+
+.btn.active {
+  background: var(--fg);
+  color: var(--bg);
+}
+
+.board.locked {
+  pointer-events: none;
 }
